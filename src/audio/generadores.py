@@ -80,7 +80,7 @@ def generar_sine_sweep(f1, f2, T, fs):
         # Generación del sweep exponencial
         t = np.linspace(0, T, int(T*fs))
         f = np.sin(K*(np.exp(t/L)-1))
-        return (f, t, R, K, L)
+        return (f, t, R, K, L, w1)
 
 def normalizar_senial(f,t):
     """Docstring for normalizar_senial
@@ -95,4 +95,25 @@ def normalizar_senial(f,t):
     nt = t/np.max(np.abs(t))
     return (nf, nt)
 
-def generar_fi():
+def generar_fi(f,t,R,K,L,w1):
+    """Docstring for generar_fi
+    
+    :param f: Senial sweep
+    :type f: tupla
+    :param t: Temporal  
+    :type t: tupla
+    :param R: Sweep RAte
+    :type R: int
+    :param K: Description
+    :type K: int
+    :param L: Description
+    :type L: int
+    :param w1: Frecuencia inicial
+    :type w1: int
+    :return: Filtro invertido
+    :rtype: tuple"""
+    wt = (K/L)*np.exp(t/L)
+    mt = w1/(2*np.pi*wt)   
+    kt = mt*f[::-1]  # Inversión temporal
+
+    return (kt, wt, mt) 
