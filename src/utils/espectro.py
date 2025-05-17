@@ -1,6 +1,36 @@
 
 import numpy as np
 
+"""
+    Carga y procesa datos espectrales exportados desde Audacity.
+    
+    Procesa un string con formato de tabla donde:
+    - Las columnas están separadas por tabs
+    - Los valores decimales usan coma (,) como separador
+    - Las líneas comentadas comienzan con '#'
+    
+    Returns:
+        tuple: Dos arrays NumPy:
+            - frecuencias (np.ndarray): Array de frecuencias en Hz
+            - nivel_db (np.ndarray): Array de niveles en dB
+    
+    Processing Steps:
+        1. Filtrado de líneas:
+           - Elimina líneas vacías y comentarios (que comienzan con '#')
+           - Remueve espacios alrededor de cada línea con strip()
+        2. Conversión de formatos:
+           - Reemplaza comas por puntos para compatibilidad con float()
+           - Separa cada línea en dos columnas (frecuencia y nivel dB)
+        3. Tipo de datos:
+           - Convierte strings a floats
+           - Almacena en arrays NumPy para procesamiento numérico
+    
+    Example:
+        >>> frec, db = cargar_espectro()
+        >>> print(f"Frecuencia mínima: {frec.min()} Hz")
+        >>> print(f"Nivel máximo: {db.max()} dB")
+"""
+
 def cargar_espectro():
     datos_audacity = """
 #Frecuencia (Hz)	Nivel (dB)
