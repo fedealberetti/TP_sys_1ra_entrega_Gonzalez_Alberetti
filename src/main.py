@@ -16,16 +16,16 @@ def main():
     
     # Guardar archivo
     guardar_wav("ruido_rosa.wav", señal)
-    
-    # Reproducir audio
-    print("Reproduciendo ruido rosa durante", t, "segundos...")
-    reproducir_audio(señal)
 
     # Genera grafico en el dominio temporal de la señal
     graficar_dominio_temporal(señal, frecuencia_muestreo=44100)
 
     # Genera grafico en el dominio de la frecuencia de la señal
     graficar_espectro()
+
+      # Reproducir audio
+    print("Reproduciendo ruido rosa durante", t, "segundos...")
+    reproducir_audio(señal)
 
 if __name__ == "__main__":
     main()

@@ -7,7 +7,6 @@ import numpy as np
     Procesa un string con formato de tabla donde:
     - Las columnas están separadas por tabs
     - Los valores decimales usan coma (,) como separador
-    - Las líneas comentadas comienzan con '#'
     
     Returns:
         tuple: Dos arrays NumPy:
