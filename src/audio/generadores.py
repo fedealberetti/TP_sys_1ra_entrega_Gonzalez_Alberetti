@@ -58,3 +58,62 @@ PREPARACIÓN DE LA SEÑAL PARA ARCHIVO WAV
     
  
     return total
+    
+def generar_sine_sweep(f1, f2, T, fs):
+        """Docstring for generar_sine_sweep
+    
+        :param f1: Frec inicial
+        :type f1: int
+        :param f2: Frec final
+        :type f2: int
+        :param T: Tiempo de duracion en segundos
+        :type T: int
+        :param fs: Frec de muestreo
+        :type fs: int
+        :return: Tupla de valores
+        :rtype: tuple"""
+        w1 = 2*np.pi*f1
+        w2 = 2*np.pi*f2
+        R = np.log(w2/w1)
+        L = T/R
+        K = (T*w1)/R
+        # Generación del sweep exponencial
+        t = np.linspace(0, T, int(T*fs))
+        f = np.sin(K*(np.exp(t/L)-1))
+        return (f, t, R, K, L, w1)
+
+def normalizar_senial(f,t):
+    """Docstring for normalizar_senial
+    
+    :param f: Senial
+    :type f: tupla
+    :param t: tiempo
+    :type t: tupla
+    :return: Senial y tiempo normalizado
+    :rtype: tuplas"""
+    nf = f/np.max(np.abs(f))
+    nt = t/np.max(np.abs(t))
+    return (nf, nt)
+
+def generar_fi(f,t,R,K,L,w1):
+    """Docstring for generar_fi
+    
+    :param f: Senial sweep
+    :type f: tupla
+    :param t: Temporal  
+    :type t: tupla
+    :param R: Sweep RAte
+    :type R: int
+    :param K: Description
+    :type K: int
+    :param L: Description
+    :type L: int
+    :param w1: Frecuencia inicial
+    :type w1: int
+    :return: Filtro invertido
+    :rtype: tuple"""
+    wt = (K/L)*np.exp(t/L)
+    mt = w1/(2*np.pi*wt)   
+    kt = mt*f[::-1]  # Inversión temporal
+
+    return (kt, wt, mt) 
