@@ -13,3 +13,4 @@ def graficar_dominio_temporal(señal, frecuencia_muestreo=1.0):
     plt.ylabel('Amplitud')
     plt.grid(True)
     plt.show()
+

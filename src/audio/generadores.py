@@ -57,7 +57,7 @@ PREPARACIÓN DE LA SEÑAL PARA ARCHIVO WAV
     total = (total * 32767).astype(np.int16)  # Conversión a int16 para WAV
     
  
-    return total
+    return total,t
     
 def generar_sine_sweep(f1, f2, T, fs):
         """Docstring for generar_sine_sweep
@@ -80,6 +80,7 @@ def generar_sine_sweep(f1, f2, T, fs):
         # Generación del sweep exponencial
         t = np.linspace(0, T, int(T*fs))
         f = np.sin(K*(np.exp(t/L)-1))
+        
         return (f, t, R, K, L, w1)
 
 def normalizar_senial(f,t):
@@ -116,4 +117,4 @@ def generar_fi(f,t,R,K,L,w1):
     mt = w1/(2*np.pi*wt)   
     kt = mt*f[::-1]  # Inversión temporal
 
-    return (kt, wt, mt) 
+    return (kt) 

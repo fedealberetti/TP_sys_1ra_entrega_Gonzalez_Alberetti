@@ -1,4 +1,5 @@
 from scipy.io.wavfile import write
+import numpy as np
 
 def guardar_wav(nombre_archivo, señal, fs=44100):
     """
@@ -9,7 +10,12 @@ def guardar_wav(nombre_archivo, señal, fs=44100):
         señal (np.array): Señal de audio
         fs (int): Frecuencia de muestreo
     """
-    write(nombre_archivo, fs, señal)
+    
+    # Guardar archivo WAV
+    
+    write(nombre_archivo, fs, (señal * 32767).astype(np.int16))
+    
+    #write(nombre_archivo, fs, señal)
 
 def reproducir_audio(señal, fs=44100):
     """Reproduce la señal usando sounddevice"""
