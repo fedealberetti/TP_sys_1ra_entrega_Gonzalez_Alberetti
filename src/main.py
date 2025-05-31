@@ -1,5 +1,5 @@
 from audio.generadores import *
-from audio.io_audio import guardar_wav, reproducir_audio
+from audio.io_audio import *
 from utils import *
 import numpy as np
 import pandas as pd
@@ -59,6 +59,18 @@ def main():
     # Reproducir audio
     reproducir_audio(sine)
     reproducir_audio(filtinv)
+ # Ejemplo: señal de prueba
+fs = 44100
+t = np.linspace(0, 5, int(5 * fs), endpoint=False)
+senal = np.random.randn(len(t))  # Generar una señal de ruido blanco como ejemplo
+
+# Ejecutar función de reproducción y grabación
+grabado = reproducir_y_grabar(senal, fs)
+# Reproduce lo grabado en reproducción y grabacion
+reproducir_audio(grabado, fs)
+# Medir latencia del sistema de audio
+medir_latencia()
+
 
 if __name__ == "__main__":
     main()
