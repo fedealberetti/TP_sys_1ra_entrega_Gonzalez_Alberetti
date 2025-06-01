@@ -90,5 +90,3 @@ def medir_latencia():
 
     return latencia_segundos, delay_samples
 
-# Ejecutar
-medir_latencia()
