@@ -5,25 +5,42 @@ from audio.generadores import *
 import soundfile as sf
 import matplotlib.pyplot as plt
 from .io_audio import guardar_wav, reproducir_audio
+from audio.generadores import normalizar_senial
 
 
-def sintetizacionRI(banda8vas, tiempox8va, fs, tiempoT60):
-    # se toma la amplitud Ai=1 para todas frecuencias de banda
-    t = np.arange(0,tiempoT60, 1/fs)  # Vector de tiempo para la duración del T60
-    listaYi = []
-    for i in range(len(banda8vas)):
-        taui = -(np.log(10**(-3))/ tiempox8va[i])
-        Yi = np.exp(-taui * t) * np.cos(2 * np.pi * banda8vas[i] * t)  # Respuesta al impulso de cada banda
-        listaYi.append(Yi)
+def normalizar_RI(senal):
+    """Normaliza la señal al rango [-1, 1]"""
+    max_val = np.max(np.abs(senal))
+    return senal / max_val if max_val > 0 else senal
 
-    sumaYi = np.sum(listaYi, axis=0)  # Suma de la respuesta al impulso
-    # Normalización de la señal o llamar a la f normalizacion_senial
-    normsumaYi = normalizar_senial(sumaYi, t)[0] # Normalizar la señal
-    # Graficar la respuesta al impulso   
-    # Guardar la respuesta al impulso como un archivo WAV
-    #  print(type(sumaYi, "sumaYi"))  # Verificar el tipo de sumaYi,
-    return t, normsumaYi
-
+def sintetizar_respuesta_impulso(t60_por_banda, fs, duracion, frecuencias_centrales):
+    """
+    Sintetiza una respuesta al impulso para bandas específicas
+    
+    Parámetros:
+    t60_por_banda: lista de tiempos T60 por banda (segundos)
+    fs: frecuencia de muestreo (Hz)
+    duracion: duración total de la RI (segundos)
+    frecuencias_centrales: lista de frecuencias centrales (Hz)
+    
+    Retorna:
+    t: vector de tiempo
+    senal: respuesta al impulso normalizada
+    """
+    # Validar entrada
+    if len(frecuencias_centrales) != len(t60_por_banda):
+        raise ValueError("El número de bandas y valores T60 debe coincidir")
+    
+    t = np.arange(0, duracion, 1/fs)  # Vector de tiempo
+    senal_total = np.zeros_like(t)     # Inicializar señal de salida
+    
+    # Generar componentes para cada banda
+    for i, fc in enumerate(frecuencias_centrales):
+        tau_i = -np.log(10**(-3)) / t60_por_banda[i]  # Constante de decaimiento
+        componente = np.exp(-tau_i * t) * np.cos(2 * np.pi * fc * t)
+        senal_total += componente
+    
+    return t, normalizar_RI(senal_total)
 
 
 
