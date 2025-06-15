@@ -174,11 +174,77 @@ def promedio_movil_convolucion(senal, L):
       y: np.array
          Señal filtrada.
     """
+    tiempoi = time.start()
     # El kernel del filtro es un vector de tamaño L con valores 1/L
     kernel = np.ones(L) / L
     # La opción 'same' asegura que la salida tenga el mismo tamaño que la señal de entrada
     y = np.convolve(senal, kernel, mode='same')
+    tiempof = time.end()
+    print(f"Tiempo de ejecución: {tiempof - tiempoi:.6f} segundos") 
     return y
+def promedio_movil_bucle(x, L):
+    """
+    Aplica el promedio móvil a la señal x usando bucles.
+    
+    Parámetros:
+      x: np.array
+         Señal de entrada.
+      L: int
+         Tamaño de la ventana del promedio.
+    
+    Retorna:
+      y: np.array
+         Señal filtrada.
+    """
+    tiempoi = time.start()
+    N = len(x)
+    y = np.zeros_like(x, dtype=float)
+    
+    for i in range(N):
+        if i < L - 1:
+            # Para índices iniciales, promediamos las muestras disponibles
+            y[i] = np.sum(x[:i+1]) / (i+1)
+        else:
+            # Cuando hay suficientes muestras, usamos la ventana completa
+            y[i] = np.sum(x[i-L+1:i+1]) / L
+    tiempof = time.end()
+    print(f"Tiempo de ejecución: {tiempof - tiempoi:.6f} segundos")
+    # Normalizar la señal resultante
+    return y
+def schroeder_integral(ir, dt=1.0):
+    """
+    Calcula la integral de Schroeder a partir de una respuesta al impulso (ir).
+    
+    Parámetros:
+      ir: np.array
+          Respuesta al impulso.
+      dt: float, opcional
+          Intervalo de muestreo (tiempo entre muestras). Por defecto 1.0.
+    
+    Retorna:
+      energy_decay: np.array
+          Curva de energía integrada (acumulada hacia adelante en el tiempo).
+      energy_decay_db: np.array
+          Versión en decibelios de la energía integrada, normalizada a la energía inicial.
+    """
+    # 1. Calcular la energía instantánea (la respuesta al impulso elevada al cuadrado)
+    squared_ir = np.square(ir)
+    
+    # 2. Calcular la suma acumulada hacia atrás (integración inversa)
+    # Se voltea el vector, se realiza la suma acumulada y se vuelve a girar.
+    energy_decay = np.flip(np.cumsum(np.flip(squared_ir))) * dt
+    
+    # 3. Normalizar la curva: se divide por el valor máximo (energía total)
+    energy_decay_norm = energy_decay / np.max(energy_decay)
+    
+    # 4. Convertir a decibelios; se añade un pequeño valor para evitar log(0)
+    energy_decay_db = 10 * np.log10(energy_decay_norm + 1e-12)
+    
+    return energy_decay, energy_decay_db
+
+
+
+
 
 
 
