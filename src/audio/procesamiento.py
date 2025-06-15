@@ -143,3 +143,42 @@ def ir_a_log(archivo):
 
 
     return irlog
+
+def aplicar_transformada_hilbert(senal):
+    """
+    Aplica la transformada de Hilbert a la señal de entrada.
+    
+    Parámetros:
+      senal: np.array
+          Señal de entrada en el dominio temporal.
+    
+    Retorna:
+      analitica: np.array
+          Señal analítica, donde la parte real es la señal original y 
+          la parte imaginaria es la transformada de Hilbert.
+    """
+    # Calcular la señal analítica utilizando la función hilbert de SciPy.
+    analitica = signal.hilbert(senal)
+    return analitica
+def promedio_movil_convolucion(senal, L):
+    """
+    Aplica el promedio móvil a la señal x usando convolución.
+    
+    Parámetros:
+      senal: np.array
+         Señal de entrada.
+      L: int
+         Tamaño de la ventana del promedio.
+    
+    Retorna:
+      y: np.array
+         Señal filtrada.
+    """
+    # El kernel del filtro es un vector de tamaño L con valores 1/L
+    kernel = np.ones(L) / L
+    # La opción 'same' asegura que la salida tenga el mismo tamaño que la señal de entrada
+    y = np.convolve(senal, kernel, mode='same')
+    return y
+
+
+
