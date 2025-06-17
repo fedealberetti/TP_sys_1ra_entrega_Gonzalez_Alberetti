@@ -76,7 +76,7 @@ def main():
 
 #Segunda Entrega
 
-
+# main()
 #bandas de octava
   # Datos del R1 Nuclear Reactor Hall
 banda8vas = [31.25, 62.5, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
@@ -158,7 +158,7 @@ guardar_wav("convolucion_FI_con_Sinesweepaula1000hz.wav", senialporbandas[frecce
 graficar_dominio_temporal(senialporbandas[freccentral], frecuencia_muestreo=fs)
 reproducir_audio(senialporbandas[freccentral], fs=fs)
 
-RIfiltnormlog = ir_a_log("RI_sintetizada.wav")
+RIfiltnormlog = ir_a_log("convolucion_FI_con_Sinesweepaula.wav")
 graficar_dominio_temporal(RIfiltnormlog, frecuencia_muestreo=fs)
 
 if __name__ == "__main__":

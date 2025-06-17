@@ -129,8 +129,8 @@ def ir_a_log(archivo):
         np.array: Arreglo con la señal transformada a escala logarítmica (dB).
     """
     # Se asegura que impulse_response sea un arreglo de NumPy
-    audiodata, fs = sf.read(archivo)
-
+    array, fs = sf.read(archivo)
+    audiodata = np.clip(array, 1e-12, None)
     # Se obtiene el valor máximo absoluto para la normalización
     A_max = np.max(np.abs(audiodata))
 
@@ -242,6 +242,122 @@ def schroeder_integral(ir, dt=1.0):
     
     return energy_decay, energy_decay_db
 
+def lundeby_extremo_integral(ir, t, margin=10, perc_tail=10, offset=5, max_iter=20, tol=1e-3):
+    
+    """
+    Estima el "extremo superior" de la integral de Schroeder usando el método Lundeby iterativo,
+    siguiendo el siguiente esquema:
+    
+      1. Se calcula la curva de energía (integral de Schroeder) en dB.
+      2. Se estima el nivel de ruido (promedio de los últimos 'perc_tail'% de la curva).
+      3. Se selecciona la parte de la curva comprendida entre 0 dB (punto izquierdo) y
+         (nivel de ruido + offset) dB (punto derecho, típicamente 5–10 dB por encima del ruido).
+      4. Se realiza una regresión lineal sobre esa porción para obtener la pendiente y el intercepto.
+      5. Se calcula el tiempo de intersección de la línea de regresión con el nivel de ruido.
+      6. Se redefine una ventana local (mínimo 10% de la RI) a partir del punto de cruce (punto 7)
+         para actualizar la estimación del ruido.
+      7. Se repiten los pasos 4 a 6 hasta que la variación en t_intersect sea menor que 'tol'.
+    
+    Parámetros:
+      ir       : np.array
+                 Respuesta al impulso.
+      t        : np.array
+                 Vector de tiempo correspondiente.
+      margin   : float
+                 Margen en dB (por ejemplo, 10 dB) que se utiliza para definir el rango
+                 de la regresión.
+      perc_tail: float
+                 Porcentaje de la cola de la señal que se usa para estimar el nivel de ruido (e.g., 10%).
+      offset   : float
+                 Offset en dB que se suma al nivel de ruido para definir el punto derecho de la regresión (5–10 dB).
+      max_iter : int
+                 Número máximo de iteraciones.
+      tol      : float
+                 Tolerancia para determinar la convergencia en el tiempo de intersección.
+    
+    Retorna:
+      t_intersect     : float
+                        Tiempo en el que la regresión se cruza con el nivel de ruido.
+      slope           : float
+                        Pendiente de la regresión.
+      intercept       : float
+                        Intercepto de la regresión.
+      noise_level     : float
+                        Nivel de ruido final (en dB).
+      energy_decay_db : np.array
+                        Curva de decaimiento en dB (resultado de la integral de Schroeder).
+    """
+    dt = t[1] - t[0]
+    _, energy_decay_db = schroeder_integral(ir, dt=dt)
+    
+    # (Paso 2) Estimar el nivel de ruido a partir del final (último perc_tail% de la curva)
+    num_tail = max(int(len(energy_decay_db) * perc_tail / 100), 1)
+    noise_level = np.mean(energy_decay_db[-num_tail:])
+    
+    t_intersect_old = None
+    for iteration in range(max_iter):
+        # (Paso 3) Se define el rango para la regresión:
+        #      - Punto izquierdo: 0 dB.
+        #      - Punto derecho: noise_level + offset (usualmente 5–10 dB por encima del ruido).
+        upper_bound = 0  # 0 dB (punto inicial)
+        lower_bound = noise_level + offset  # Umbral inferior para la selección
+        indices = np.where((energy_decay_db <= upper_bound) & (energy_decay_db >= lower_bound))[0]
+        
+        if len(indices) < 2:
+            print(f"Iteración {iteration}: No hay suficientes puntos para ajustar; se aborta el proceso.")
+            break
+        
+        # (Paso 4) Ajuste lineal (regresión) sobre los puntos de la curva seleccionada.
+        t_fit = t[indices]
+        dB_fit = energy_decay_db[indices]
+        slope, intercept = np.polyfit(t_fit, dB_fit, 1)
+        
+        # (Paso 5) Calcular el punto de cruce: se resuelve slope*t + intercept = noise_level.
+        t_intersect = (noise_level - intercept) / slope
+        
+        # Comprobación de convergencia
+        if t_intersect_old is not None and np.abs(t_intersect - t_intersect_old) < tol:
+            break
+        t_intersect_old = t_intersect
+        
+        # (Paso 7) Actualizar la estimación de ruido:
+        # Se define una ventana local a partir del punto de cruce que abarque al menos el 10% de la RI.
+        idx_start = np.searchsorted(t, t_intersect)
+        idx_end = min(idx_start + max(int(0.1 * len(t)), 1), len(t))
+        if idx_start < idx_end:
+            noise_level = np.mean(energy_decay_db[idx_start:idx_end])
+        
+        # Se podrían implementar más subdivisiones o calcular nuevos RMS locales (pasos 5–6 adicionales)
+        # según se requiera alcanzar mayor precisión.
+    
+    return t_intersect, slope, intercept, noise_level, energy_decay_db
+
+# Ejemplo de uso:
+
+# Generamos una respuesta al impulso simulada: decaimiento exponencial con un poco de ruido.
+t = np.linspace(0, 3, 3000)  # 3 segundos con 3000 muestras
+ir = np.exp(-2*t) + 0.05 * np.random.randn(len(t))
+
+# Aplicamos el método Lundeby para estimar el extremo superior de la integral
+t_int, slope, intercept, noise_level, energy_decay_db = lundeby_extremo_integral(
+    ir, t, margin=10, perc_tail=10, offset=5, max_iter=20, tol=1e-3
+)
+
+print("Tiempo de intersección (extremo superior):", t_int)
+print("Pendiente de la regresión:", slope)
+print("Intercepto:", intercept)
+print("Nivel de ruido estimado (dB):", noise_level)
+
+# Se grafica la curva de decaimiento y el punto de intersección
+plt.figure(figsize=(10, 6))
+plt.plot(t, energy_decay_db, label="Curva de decaimiento (dB)")
+plt.axhline(y=noise_level, color='gray', linestyle='--', label="Nivel de ruido estimado")
+plt.axvline(x=t_int, color='red', linestyle='--', label=f"t_intersect = {t_int:.3f} s")
+plt.xlabel("Tiempo [s]")
+plt.ylabel("Energía (dB)")
+plt.title("Integral de Schroeder con límite superior según Lundeby")
+plt.legend()
+plt.show()
 
 
 

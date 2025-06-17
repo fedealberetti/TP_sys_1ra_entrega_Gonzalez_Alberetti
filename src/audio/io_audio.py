@@ -44,7 +44,7 @@ def reproducir_y_grabar(senal, fs=44100):
     :return: Señal grabada
     """
     duracion = len(senal) / fs
-    print(f"Reproduciendo y grabando por {duracion:.2f} segundos...")
+    print("Reproduciendo y grabando por {duracion:.2f} segundos...")
 
     # Reproducir y grabar en simultáneo
     grabado = sd.playrec(senal, samplerate=fs, channels=1, dtype='float32')
