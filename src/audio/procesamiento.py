@@ -129,8 +129,8 @@ def ir_a_log(archivo):
         np.array: Arreglo con la señal transformada a escala logarítmica (dB).
     """
     # Se asegura que impulse_response sea un arreglo de NumPy
-    audiodata, fs = sf.read(archivo)
-
+    array, fs = sf.read(archivo)
+    audiodata = np.clip(array, 1e-12, None)
     # Se obtiene el valor máximo absoluto para la normalización
     A_max = np.max(np.abs(audiodata))
 
