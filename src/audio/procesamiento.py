@@ -359,3 +359,94 @@ plt.ylabel("Energía (dB)")
 plt.title("Integral de Schroeder con límite superior según Lundeby")
 plt.legend()
 plt.show()
+
+def param_edt(m):
+    '''
+    Calcula el tiempo de decaimiento temprano de la respuesta al impulso de un recinto.
+
+    Parámetros:
+    -----------
+    m: float
+        Pendiente de la recta obtenida por regresión lineal.
+    return: float
+        Devuelve el valor del EDT.
+    '''
+    ## Early Decay Time (EDT)
+
+    edt = -60 / m
+
+    return edt
+
+
+def param_c80(signal,t=50,fs=44100):
+    '''
+    Calcula el C80 de la respuesta al impulso ingresada con la posibilidad
+    de que el usuario elija el tiempo que quiere tomar según el recinto.
+
+    Parámetros:
+    -----------
+    signal: Numpy Array
+        Corresponde a la respuesta al impulso del recinto.
+    t: int
+        Valor en milisegundos que requiera el usuario.
+    fs: int
+        Frecuencia de muestreo correspondiente a la respuesta al impulso.
+    return: float
+        Devuelve el valor del C80.
+    '''
+    # C80 o "claridad"
+
+    # Se pasa de milisegundos a segundos
+    t = t / 1000  
+
+    # Se recorta la IR hasta el extremo superior
+    pre80 = signal[:fs*t]
+    post80 = signal[fs*t:]
+
+    # Calcula la energía del primer tramo
+    energia_pre80 = np.sum(pre80**2)
+
+    # Calcula la energía del segundo tramo
+    energia_post80 = np.sum(post80**2)
+
+    if energia_post80 == 0:
+        return 0
+
+    # Se calcula el C80 
+    c80 = 10 * np.log10(energia_pre80 / energia_post80)
+
+    return c80
+
+def param_d50(signal,fs=44100):
+    '''
+    Calcula el D50 de la respuesta al impulso ingresada.
+
+    Parámetros:
+    -----------
+    signal: Numpy Array
+        Corresponde a la respuesta al impulso del recinto
+    fs: int
+        Frecuencia de muestreo correspondiente a la respuesta al impulso.
+    return: floar
+        Devuelve el valor del D50.
+    '''
+    ## D50 o "definición"
+
+    t = 0.05 
+
+    # Se recorta la IR hasta el extremo superior
+    pre50 = signal[:fs*t]
+
+    # Calcula la energía del primer tramo
+    energia_pre50 = np.sum(pre50**2)
+
+    # Calcula la energía total de la señal 
+    energia_signal= np.sum(signal**2)
+
+    if energia_signal == 0:
+        return 0
+
+    # Se calcula el C80 
+    d50 = energia_pre50 / energia_signal
+
+    return d50 
