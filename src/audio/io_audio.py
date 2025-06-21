@@ -151,9 +151,9 @@ fileselect = Button(description="Seleccione archivos WAV")
 fileselect.on_click(select_and_load_files)
 
 # Mostrar el botón en la celda de Jupyter
-display(fileselect)
+#display(fileselect)
 
 # La variable 'files' contiene la lista de archivos seleccionados
-files
+#files
 
-select_and_load_files(fileselect)  # Llamar a la función para cargar archivos al inicio
+#select_and_load_files(fileselect)  # Llamar a la función para cargar archivos al inicio

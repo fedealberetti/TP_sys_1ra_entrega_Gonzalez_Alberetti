@@ -1,12 +1,10 @@
 import numpy as np
 import pandas as pd
 from scipy import signal
-from generadores import *
+from audio.generadores import *
 import soundfile as sf
 import matplotlib.pyplot as plt
-from io_audio import guardar_wav, reproducir_audio
-from generadores import normalizar_senial
-
+from audio.io_audio import *
 
 def normalizar_RI(senal):
     """Normaliza la señal al rango [-1, 1]"""
@@ -336,26 +334,26 @@ def lundeby_extremo_integral(ir, t, margin=10, perc_tail=10, offset=5, max_iter=
 # Ejemplo de uso:
 
 # Generamos una respuesta al impulso simulada: decaimiento exponencial con un poco de ruido.
-t = np.linspace(0, 3, 3000)  # 3 segundos con 3000 muestras
-ir = np.exp(-2*t) + 0.05 * np.random.randn(len(t))
+# t = np.linspace(0, 3, 3000)  # 3 segundos con 3000 muestras
+# ir = np.exp(-2*t) + 0.05 * np.random.randn(len(t))
 
 # Aplicamos el método Lundeby para estimar el extremo superior de la integral
-t_int, slope, intercept, noise_level, energy_decay_db = lundeby_extremo_integral(
-    ir, t, margin=10, perc_tail=10, offset=5, max_iter=20, tol=1e-3
-)
+# t_int, slope, intercept, noise_level, energy_decay_db = lundeby_extremo_integral(
+#     ir, t, margin=10, perc_tail=10, offset=5, max_iter=20, tol=1e-3
+# )
 
-print("Tiempo de intersección (extremo superior):", t_int)
-print("Pendiente de la regresión:", slope)
-print("Intercepto:", intercept)
-print("Nivel de ruido estimado (dB):", noise_level)
+# print("Tiempo de intersección (extremo superior):", t_int)
+# print("Pendiente de la regresión:", slope)
+# print("Intercepto:", intercept)
+# print("Nivel de ruido estimado (dB):", noise_level)
 
 # Se grafica la curva de decaimiento y el punto de intersección
-plt.figure(figsize=(10, 6))
-plt.plot(t, energy_decay_db, label="Curva de decaimiento (dB)")
-plt.axhline(y=noise_level, color='gray', linestyle='--', label="Nivel de ruido estimado")
-plt.axvline(x=t_int, color='red', linestyle='--', label=f"t_intersect = {t_int:.3f} s")
-plt.xlabel("Tiempo [s]")
-plt.ylabel("Energía (dB)")
-plt.title("Integral de Schroeder con límite superior según Lundeby")
-plt.legend()
-plt.show()
+# plt.figure(figsize=(10, 6))
+# plt.plot(t, energy_decay_db, label="Curva de decaimiento (dB)")
+# plt.axhline(y=noise_level, color='gray', linestyle='--', label="Nivel de ruido estimado")
+# plt.axvline(x=t_int, color='red', linestyle='--', label=f"t_intersect = {t_int:.3f} s")
+# plt.xlabel("Tiempo [s]")
+# plt.ylabel("Energía (dB)")
+# plt.title("Integral de Schroeder con límite superior según Lundeby")
+# plt.legend()
+# plt.show()
