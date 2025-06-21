@@ -52,8 +52,67 @@ def funcRI(fi, sine):
     # Normalizar la señal resultante y grabarla como un archivo WAV   
     return RI
 
+def ir(grabacion,filtro_inverso,fs=44100,norm=True):
+    '''
+    Obtiene la respuesta al impulso de un recinto ingresando la grabación del 
+    sine-sweep en el lugar y su respectivo filtro inverso.
 
+    Parámetros
+    ----------
+    grabacion: ruta .wav
+        Registro del sine-sweep en el recinto.
+    filtro_inverso: ruta .wav
+        Filtro inverso del sine-sweep grabado en el recinto.
+    norm: Bool
+        Si es True, la señal del return será normalizada.
+    return: Numpy Array
+        Devuelve la respuesta al impulso del recinto.
+    '''
+    # Se cargan los archivos de audio del sweep en el recinto y el filtro inverso
+    k, fs = sf.read('filtro_inverso.wav')
+    y, fs = sf.read('grabacion.wav')
 
+    #k = filtro_inverso
+    #y = grabacion
+
+    #if y.ndim > 1:
+    #    y = y.flatten()
+
+    # Se aplica la transformada de Fourier en ámbas señales
+    n = len(y) + len(k) - 1
+    K = np.fft.fft(k,n=n)
+    Y = np.fft.fft(y,n=n)
+
+    # Se multiplican las señales
+    H = Y * K
+
+    # Tranformada inversa de Fourier de h
+    h = np.fft.ifft(H)
+    h = np.real(h)
+
+    # Se obtiene el valor máximo de h
+    h_max = np.argmax(abs(h))
+
+    # Recortá una ventana desde el pico, por ejemplo 3 segundos
+    duracion_segundos = 30
+    muestras = int(fs * duracion_segundos)
+    inicio = h_max 
+    fin = h_max + muestras
+
+    # Asegurate de no salirte del array
+    h = h[inicio:fin] if fin < len(h) else h[inicio:]
+
+    # Normalización (opcional)
+    if norm == True:
+        h /= np.max(np.abs(h))
+    
+    # Normalización y formato float32
+    h_audio = h / np.max(np.abs(h))
+    h_audio = h_audio.astype(np.float32)
+
+    sf.write('impulse_response.wav',h_audio,fs)
+
+    return h
 
 def filtronorma(senial, fs, tipo='octava', order=4):
     audiodata, fs = sf.read(senial)
@@ -113,6 +172,84 @@ def filtronorma(senial, fs, tipo='octava', order=4):
 
     return filtroporbandas
 
+def filtro(banda='octava'):
+    '''
+    Genera filtros de cada frecuencia centra de la respuesta al impulso.
+    Genera un archivo wav por cada frecuencia filtada.
+
+    Nota: si los archivos wav ya existen, serán reemplazadas.
+
+    Parámetros
+    ----------
+    ir: Ruta
+        Ruta donde se encuentra la respuesta al impulso en formato wav.
+    return: Lista
+        Lista con los arrays correspondientes a los filtros por banda de octava.
+    '''
+    # Se ingresa la respuesta al impulso como archivo wav
+    audio, fs = sf.read('ir.wav')
+
+    # Lista donde se guardan las señales filtradas
+    filtros = []
+    frecuencias = []
+
+    if banda == 'octava':
+        # Bandas por octava
+        frecuencias = [31.25,62.5,125,250,500,1000,2000,4000,8000]
+        G = 1.0/2.0
+
+    else:
+        # Banda tercio por octava
+        frecuencias = [12.5, 16, 20, 25, 31.5, 40, 50, 63, 80, 100, 125, 160, 200, 
+               250, 315, 400, 500, 630, 800, 1000, 1250, 1600, 2000, 2500, 
+               3150, 4000, 5000, 6300, 8000, 10000, 12500]
+        G = 1.0/6.0
+
+    for fi in frecuencias:
+        #Selección de octava - G = 1.0/2.0 / 1/3 de Octava - G=1.0/6.0
+        fo = 0
+        factor = np.power(2, G)
+        centerFrequency_Hz = fi 
+
+        #Calculo los extremos de la banda a partir de la frecuencia central
+        lowerCutoffFrequency_Hz=centerFrequency_Hz/factor;
+        upperCutoffFrequency_Hz=centerFrequency_Hz*factor;
+
+        # El orden del filtro varía con la frecuencia central
+
+        # Orden 8 para frecuencias menores a 200Hz
+        if fi <= 200:
+            fo = 8
+        # Orden 6 para frecuencias entre 200Hz y 1kHz
+        if fi > 200 and fi < 1000:
+            fo = 6
+        # Orden 4 para frecuencias mayores a 1kHz
+        if fi >= 1000:
+            fo = 4
+
+        # Extraemos los coeficientes del filtro 
+        b,a = signal.iirfilter(fo, [2*np.pi*lowerCutoffFrequency_Hz,2*np.pi*upperCutoffFrequency_Hz],
+                                    rs=60, btype='band', analog=True,
+                                    ftype='butter') 
+
+        # para aplicar el filtro es más óptimo
+        sos = signal.iirfilter(fo, [lowerCutoffFrequency_Hz,upperCutoffFrequency_Hz],
+                                    rs=60, btype='band', analog=False,
+                                    ftype='butter', fs=fs, output='sos') 
+
+        w, h = signal.freqs(b,a)
+
+        # Aplicando filtro al audio
+        filt = signal.sosfilt(sos, audio)
+
+        # Se guarda la señal filtrada en una lista
+        filtros.append(filt)
+
+        # Se genera un archivo .wav correspondiente a la señal filtrada en fi
+        sf.write(f'filtro_{fi}Hz.wav',filt,fs)
+
+    return filtros
+
 def ir_a_log(archivo):
     fs=44100  # Frecuencia de muestreo por defecto, se puede ajustar según el archivo
     """
@@ -161,6 +298,7 @@ def aplicar_transformada_hilbert(senal):
     # Calcular la señal analítica utilizando la función hilbert de SciPy.
     analitica = signal.hilbert(senal)
     return analitica
+
 def promedio_movil_convolucion(senal, L):
     """
     Aplica el promedio móvil a la señal x usando convolución.
@@ -183,6 +321,7 @@ def promedio_movil_convolucion(senal, L):
     tiempof = time.end()
     print(f"Tiempo de ejecución: {tiempof - tiempoi:.6f} segundos") 
     return y
+
 def promedio_movil_bucle(x, L):
     """
     Aplica el promedio móvil a la señal x usando bucles.
@@ -212,6 +351,7 @@ def promedio_movil_bucle(x, L):
     print(f"Tiempo de ejecución: {tiempof - tiempoi:.6f} segundos")
     # Normalizar la señal resultante
     return y
+
 def schroeder_integral(ir, dt=1.0):
     """
     Calcula la integral de Schroeder a partir de una respuesta al impulso (ir).

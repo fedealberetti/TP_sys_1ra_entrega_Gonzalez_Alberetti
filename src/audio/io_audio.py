@@ -53,6 +53,60 @@ def reproducir_y_grabar(senal, fs=44100):
     print("Grabación terminada.")
     return grabado.flatten()
 
+
+def grabador(T,wav=False,fs=44100):
+    '''
+    Reproduce un sine-sweep y registra el audio tomado por el dispositivo 
+    seleccionado por el usuario en el tiempo elegido. El registro
+    se guarda en el archivo 'grabacion.wav'
+
+    Nota: si 'grabacion.wav' existe, este será sobreescrito.
+
+    Parámetros
+    ----------
+    fs: int
+        Frecuencia de muestreo a la que se quiere grabar.
+    return: Numpy Array
+        Devuelve el array correspondiente a la grabación.
+    '''
+    ## Selección del dispositivo de audio
+    sentinela = ""
+    while sentinela != "s":
+        # Imprime los dispositivos disponibles
+        print(f"\n{sd.query_devices()}")
+
+        # Ingreso de los dispositivos i/o del usuario
+        entrada = int(input("\nSeleccione el dispositivo de entrada: "))
+        salida = int(input("Seleccione el dispositivo de salida: "))
+        sd.default.device = (entrada,salida)  # type: ignore
+
+        # Se imprimen los dispositivos seleccionados
+        print(f"\n{sd.query_devices()}")
+        
+        # Confirmación de los datos
+        sentinela = str(input("\n¿Desea guardar los cambios? [S/n]: ")).lower()
+
+    ## Grabador y reproductor
+
+    # Carga del audio del sweep
+    sweep, fs = sf.read('sweep.wav')
+    t = T*fs
+
+    # Extendemos el sweep según el tiempo que decida el usuario
+    extend = np.zeros(t - len(sweep))
+    sweep = np.concatenate([sweep,extend])
+
+    # Grabación y reproducción
+    print("Grabando...")
+    grabacion = sd.playrec(sweep,channels=1)
+    sd.wait()
+
+    # Se guarda la grabación en un archivo 'grabacion.wav'
+    if wav == True:
+        sf.write('grabacion.wav',grabacion,fs)
+
+    return grabacion, fs
+
 def medir_latencia():
     """
     Estima la latencia del sistema de audio usando una señal de impulso.
