@@ -111,8 +111,8 @@ def filtronorma(senial, fs, tipo='octava', order=4):
 
     return filtroporbandas
 
-def ir_a_log(archivo):
-    fs=44100  # Frecuencia de muestreo por defecto, se puede ajustar según el archivo
+def ir_a_log(signal, fs = 44100):
+    
     """
     Convierte una respuesta al impulso (RI) a una escala logarítmica normalizada.
     
@@ -127,19 +127,25 @@ def ir_a_log(archivo):
         np.array: Arreglo con la señal transformada a escala logarítmica (dB).
     """
     # Se asegura que impulse_response sea un arreglo de NumPy
-    array, fs = sf.read(archivo)
-    audiodata = np.clip(array, 1e-12, None)
-    # Se obtiene el valor máximo absoluto para la normalización
-    A_max = np.max(np.abs(audiodata))
+     # Señal con valores absolutos
+    signal_abs = np.abs(signal)
 
-    # Evitar división por cero: si A_max es 0, se devuelve un array con -inf (logaritmo indefinido)
-    if A_max == 0:
-        return np.full_like(audiodata, -np.inf)
+    # Valor máximo de la señal
+    signal_max = np.max(np.abs(signal))
 
-    # Se aplica la fórmula de conversión a escala logarítmica
-    irlog = 20 * np.log10(np.abs(audiodata) / A_max)
+    # Si la energía de la señal es nula
+    if signal_max == 0:
+        return np.full_like(signal, -np.inf)
+
+    # Cociente entre el valor absoluto y el máximo
+    signal_norm = signal_abs / signal_max
+    signal_norm_segura = np.clip(signal_norm, 1e-12, None)
+
+    # Transformación a escala logarítmica
+    r = 20 * np.log10(signal_norm_segura)
 
 
+    return r
     return irlog
 
 
@@ -158,7 +164,7 @@ def aplicar_transformada_hilbert(senal):
     """
     # Calcular la señal analítica utilizando la función hilbert de SciPy.
     analitica = signal.hilbert(senal)
-    return analitica
+    return normalizar_RI(np.abs(analitica))
 def promedio_movil_convolucion(senal, L):
     """
     Aplica el promedio móvil a la señal x usando convolución.
@@ -173,13 +179,13 @@ def promedio_movil_convolucion(senal, L):
       y: np.array
          Señal filtrada.
     """
-    tiempoi = time.start()
+    # tiempoi = time.start()
     # El kernel del filtro es un vector de tamaño L con valores 1/L
     kernel = np.ones(L) / L
     # La opción 'same' asegura que la salida tenga el mismo tamaño que la señal de entrada
     y = np.convolve(senal, kernel, mode='same')
-    tiempof = time.end()
-    print(f"Tiempo de ejecución: {tiempof - tiempoi:.6f} segundos") 
+    #tiempof = time.end()
+    #print(f"Tiempo de ejecución: {tiempof - tiempoi:.6f} segundos") 
     return y
 def promedio_movil_bucle(x, L):
     """
@@ -331,29 +337,151 @@ def lundeby_extremo_integral(ir, t, margin=10, perc_tail=10, offset=5, max_iter=
     
     return t_intersect, slope, intercept, noise_level, energy_decay_db
 
-# Ejemplo de uso:
+def regresion_lineal_iso3382(x, y):
+    """
+    Realiza una regresión lineal por mínimos cuadrados siguiendo las fórmulas
+    típicamente encontradas en el Anexo C de ISO 3382:2008.
 
-# Generamos una respuesta al impulso simulada: decaimiento exponencial con un poco de ruido.
-# t = np.linspace(0, 3, 3000)  # 3 segundos con 3000 muestras
-# ir = np.exp(-2*t) + 0.05 * np.random.randn(len(t))
+    Args:
+        x_data (array-like): Datos de la variable independiente (e.g., tiempo).
+        y_data (array-like): Datos de la variable dependiente (e.g., nivel de sonido en dB).
 
-# Aplicamos el método Lundeby para estimar el extremo superior de la integral
-# t_int, slope, intercept, noise_level, energy_decay_db = lundeby_extremo_integral(
-#     ir, t, margin=10, perc_tail=10, offset=5, max_iter=20, tol=1e-3
-# )
+    Returns:
+        tuple: Una tupla que contiene:
+            - pendiente (float): La pendiente 'm' de la línea de regresión.
+            - ordenada_origen (float): La ordenada al origen 'b' de la línea de regresión.
+            - y_pred (numpy.ndarray): Los valores 'y' predichos por la línea de regresión.
+    """
+    #n = len(x_data)
 
-# print("Tiempo de intersección (extremo superior):", t_int)
-# print("Pendiente de la regresión:", slope)
-# print("Intercepto:", intercept)
-# print("Nivel de ruido estimado (dB):", noise_level)
+    #if n == 0:
+    #    raise ValueError("Los datos de entrada no pueden estar vacíos.")
+    #if n != len(y_data):
+    #    raise ValueError("x_data y y_data deben tener la misma longitud.")
+    #if n < 2:
+    #    raise ValueError("Se necesitan al menos 2 puntos para realizar una regresión lineal.")
 
-# Se grafica la curva de decaimiento y el punto de intersección
-# plt.figure(figsize=(10, 6))
-# plt.plot(t, energy_decay_db, label="Curva de decaimiento (dB)")
-# plt.axhline(y=noise_level, color='gray', linestyle='--', label="Nivel de ruido estimado")
-# plt.axvline(x=t_int, color='red', linestyle='--', label=f"t_intersect = {t_int:.3f} s")
-# plt.xlabel("Tiempo [s]")
-# plt.ylabel("Energía (dB)")
-# plt.title("Integral de Schroeder con límite superior según Lundeby")
-# plt.legend()
-# plt.show()
+    ## Convertir a arrays de NumPy para facilitar las operaciones
+    #x = np.array(x_data)
+    #y = np.array(y_data)
+
+    n = len(x)
+
+    # Calcular las sumatorias necesarias
+    sum_xy = np.sum(x * y)
+    sum_x = np.sum(x)
+    sum_y = np.sum(y)
+    sum_x_squared = np.sum(x**2)
+
+    # Calcular la pendiente (m)
+    # m = (n * sum(xi*yi) - sum(xi) * sum(yi)) / (n * sum(xi^2) - (sum(xi))^2)
+    numerador_m = n * sum_xy - sum_x * sum_y
+    denominador_m = n * sum_x_squared - sum_x**2
+
+    if denominador_m == 0:
+        raise ValueError("No se puede calcular la pendiente (denominador es cero). Esto puede ocurrir si todos los valores de x son iguales.")
+
+    pendiente = numerador_m / denominador_m
+
+    # Calcular la ordenada al origen (b)
+    # b = mean(y) - m * mean(x)
+    media_x = np.mean(x)
+    media_y = np.mean(y)
+
+    ordenada_origen = media_y - pendiente * media_x
+
+    # Calcular los valores y predichos
+    y_pred = pendiente * x + ordenada_origen
+
+    return pendiente, ordenada_origen, y_pred
+
+def param_edt(m):
+    '''
+    Calcula el tiempo de decaimiento temprano de la respuesta al impulso de un recinto.
+
+    Parámetros:
+    -----------
+    m: float
+        Pendiente de la recta obtenida por regresión lineal.
+    return: float
+        Devuelve el valor del EDT.
+    '''
+    ## Early Decay Time (EDT)
+
+    edt = -60 / m
+
+    return edt
+
+
+def param_c80(signal,t=50,fs=44100):
+    '''
+    Calcula el C80 de la respuesta al impulso ingresada con la posibilidad
+    de que el usuario elija el tiempo que quiere tomar según el recinto.
+
+    Parámetros:
+    -----------
+    signal: Numpy Array
+        Corresponde a la respuesta al impulso del recinto.
+    t: int
+        Valor en milisegundos que requiera el usuario.
+    fs: int
+        Frecuencia de muestreo correspondiente a la respuesta al impulso.
+    return: float
+        Devuelve el valor del C80.
+    '''
+    # C80 o "claridad"
+
+    # Se pasa de milisegundos a segundos
+    t = t / 1000  
+
+    # Se recorta la IR hasta el extremo superior
+    pre80 = signal[:fs*t]
+    post80 = signal[fs*t:]
+
+    # Calcula la energía del primer tramo
+    energia_pre80 = np.sum(pre80**2)
+
+    # Calcula la energía del segundo tramo
+    energia_post80 = np.sum(post80**2)
+
+    if energia_post80 == 0:
+        return 0
+
+    # Se calcula el C80 
+    c80 = 10 * np.log10(energia_pre80 / energia_post80)
+
+    return c80
+
+def param_d50(signal,fs=44100):
+    '''
+    Calcula el D50 de la respuesta al impulso ingresada.
+
+    Parámetros:
+    -----------
+    signal: Numpy Array
+        Corresponde a la respuesta al impulso del recinto
+    fs: int
+        Frecuencia de muestreo correspondiente a la respuesta al impulso.
+    return: floar
+        Devuelve el valor del D50.
+    '''
+    ## D50 o "definición"
+
+    t = 0.05 
+
+    # Se recorta la IR hasta el extremo superior
+    pre50 = signal[:fs*t]
+
+    # Calcula la energía del primer tramo
+    energia_pre50 = np.sum(pre50**2)
+
+    # Calcula la energía total de la señal 
+    energia_signal= np.sum(signal**2)
+
+    if energia_signal == 0:
+        return 0
+
+    # Se calcula el C80 
+    d50 = energia_pre50 / energia_signal
+
+    return d50
