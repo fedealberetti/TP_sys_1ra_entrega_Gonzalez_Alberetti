@@ -333,32 +333,63 @@ def lundeby_extremo_integral(ir, t, margin=10, perc_tail=10, offset=5, max_iter=
     
     return t_intersect, slope, intercept, noise_level, energy_decay_db
 
-# Ejemplo de uso:
+def regresion_lineal_iso3382(x, y):
+    """
+    Realiza una regresión lineal por mínimos cuadrados siguiendo las fórmulas
+    típicamente encontradas en el Anexo C de ISO 3382:2008.
 
-# Generamos una respuesta al impulso simulada: decaimiento exponencial con un poco de ruido.
-t = np.linspace(0, 3, 3000)  # 3 segundos con 3000 muestras
-ir = np.exp(-2*t) + 0.05 * np.random.randn(len(t))
+    Args:
+        x_data (array-like): Datos de la variable independiente (e.g., tiempo).
+        y_data (array-like): Datos de la variable dependiente (e.g., nivel de sonido en dB).
 
-# Aplicamos el método Lundeby para estimar el extremo superior de la integral
-t_int, slope, intercept, noise_level, energy_decay_db = lundeby_extremo_integral(
-    ir, t, margin=10, perc_tail=10, offset=5, max_iter=20, tol=1e-3
-)
+    Returns:
+        tuple: Una tupla que contiene:
+            - pendiente (float): La pendiente 'm' de la línea de regresión.
+            - ordenada_origen (float): La ordenada al origen 'b' de la línea de regresión.
+            - y_pred (numpy.ndarray): Los valores 'y' predichos por la línea de regresión.
+    """
+    #n = len(x_data)
 
-print("Tiempo de intersección (extremo superior):", t_int)
-print("Pendiente de la regresión:", slope)
-print("Intercepto:", intercept)
-print("Nivel de ruido estimado (dB):", noise_level)
+    #if n == 0:
+    #    raise ValueError("Los datos de entrada no pueden estar vacíos.")
+    #if n != len(y_data):
+    #    raise ValueError("x_data y y_data deben tener la misma longitud.")
+    #if n < 2:
+    #    raise ValueError("Se necesitan al menos 2 puntos para realizar una regresión lineal.")
 
-# Se grafica la curva de decaimiento y el punto de intersección
-plt.figure(figsize=(10, 6))
-plt.plot(t, energy_decay_db, label="Curva de decaimiento (dB)")
-plt.axhline(y=noise_level, color='gray', linestyle='--', label="Nivel de ruido estimado")
-plt.axvline(x=t_int, color='red', linestyle='--', label=f"t_intersect = {t_int:.3f} s")
-plt.xlabel("Tiempo [s]")
-plt.ylabel("Energía (dB)")
-plt.title("Integral de Schroeder con límite superior según Lundeby")
-plt.legend()
-plt.show()
+    ## Convertir a arrays de NumPy para facilitar las operaciones
+    #x = np.array(x_data)
+    #y = np.array(y_data)
+
+    n = len(x)
+
+    # Calcular las sumatorias necesarias
+    sum_xy = np.sum(x * y)
+    sum_x = np.sum(x)
+    sum_y = np.sum(y)
+    sum_x_squared = np.sum(x**2)
+
+    # Calcular la pendiente (m)
+    # m = (n * sum(xi*yi) - sum(xi) * sum(yi)) / (n * sum(xi^2) - (sum(xi))^2)
+    numerador_m = n * sum_xy - sum_x * sum_y
+    denominador_m = n * sum_x_squared - sum_x**2
+
+    if denominador_m == 0:
+        raise ValueError("No se puede calcular la pendiente (denominador es cero). Esto puede ocurrir si todos los valores de x son iguales.")
+
+    pendiente = numerador_m / denominador_m
+
+    # Calcular la ordenada al origen (b)
+    # b = mean(y) - m * mean(x)
+    media_x = np.mean(x)
+    media_y = np.mean(y)
+
+    ordenada_origen = media_y - pendiente * media_x
+
+    # Calcular los valores y predichos
+    y_pred = pendiente * x + ordenada_origen
+
+    return pendiente, ordenada_origen, y_pred
 
 def param_edt(m):
     '''

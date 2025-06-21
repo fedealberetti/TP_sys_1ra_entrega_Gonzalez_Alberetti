@@ -77,11 +77,12 @@ def generar_sine_sweep(f1, f2, T, fs):
         R = np.log(w2/w1)
         L = T/R
         K = (T*w1)/R
+
         # Generación del sweep exponencial
         t = np.linspace(0, T, int(T*fs))
-        f = np.sin(K*(np.exp(t/L)-1))
+        sweep = np.sin(K*(np.exp(t/L)-1))
         
-        return (f, t, R, K, L, w1)
+        return sweep
 
 def normalizar_senial(f,t):
     """Docstring for normalizar_senial
