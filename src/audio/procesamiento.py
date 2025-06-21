@@ -531,7 +531,7 @@ def regresion_lineal_iso3382(x, y):
 
     return pendiente, ordenada_origen, y_pred
 
-def param_edt(m):
+def param_edt(m,b):
     '''
     Calcula el tiempo de decaimiento temprano de la respuesta al impulso de un recinto.
 
@@ -539,12 +539,14 @@ def param_edt(m):
     -----------
     m: float
         Pendiente de la recta obtenida por regresión lineal.
+    b: float
+        Ordenada al origen de la recta obtenida por regresión lineal.
     return: float
         Devuelve el valor del EDT.
     '''
     ## Early Decay Time (EDT)
 
-    edt = -60 / m
+    edt = (-60 - b) / m
 
     return edt
 
