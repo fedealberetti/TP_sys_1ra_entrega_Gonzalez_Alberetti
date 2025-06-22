@@ -161,5 +161,11 @@ reproducir_audio(senialporbandas[freccentral], fs=fs)
 RIfiltnormlog = ir_a_log("RI_sintetizada.wav")
 graficar_dominio_temporal(RIfiltnormlog, frecuencia_muestreo=fs)
 
+
+
+
+
+
+
 if __name__ == "__main__":
   main()

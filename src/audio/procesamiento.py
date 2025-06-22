@@ -11,34 +11,76 @@ def normalizar_RI(senal):
     max_val = np.max(np.abs(senal))
     return senal / max_val if max_val > 0 else senal
 
-def sintetizar_respuesta_impulso(t60_por_banda, fs, duracion, frecuencias_centrales):
+import numpy as np
+
+def sintetizar_respuesta_impulso(t60_por_banda, fs, duracion, frecuencias_centrales, SNR_dB=60):
     """
-    Sintetiza una respuesta al impulso para bandas específicas
-    
+    Sintetiza una respuesta al impulso multibanda y agrega ruido rosa con fade out.
+
     Parámetros:
-    t60_por_banda: lista de tiempos T60 por banda (segundos)
-    fs: frecuencia de muestreo (Hz)
-    duracion: duración total de la RI (segundos)
-    frecuencias_centrales: lista de frecuencias centrales (Hz)
-    
+        t60_por_banda (list): Lista de T60 por banda (en segundos).
+        fs (int): Frecuencia de muestreo (Hz).
+        duracion (float): Duración total de la señal de salida (en segundos).
+        frecuencias_centrales (list): Lista de frecuencias centrales (Hz).
+        SNR_dB (float): Relación señal-ruido en dB (por defecto 60 dB).
+
     Retorna:
-    t: vector de tiempo
-    senal: respuesta al impulso normalizada
+        tuple: (vector de tiempo, señal final normalizada)
     """
-    # Validar entrada
     if len(frecuencias_centrales) != len(t60_por_banda):
-        raise ValueError("El número de bandas y valores T60 debe coincidir")
-    
-    t = np.arange(0, duracion, 1/fs)  # Vector de tiempo
-    senal_total = np.zeros_like(t)     # Inicializar señal de salida
-    
-    # Generar componentes para cada banda
+        raise ValueError("El número de frecuencias y valores T60 debe coincidir.")
+
+    # Tiempo y señal base
+    t = np.arange(0, duracion, 1/fs)
+    senal_total = np.zeros_like(t)
+
+    # Generar IR como suma de componentes de cada banda
     for i, fc in enumerate(frecuencias_centrales):
-        tau_i = -np.log(10**(-3)) / t60_por_banda[i]  # Constante de decaimiento
-        componente = np.exp(-tau_i * t) * np.cos(2 * np.pi * fc * t)
+        tau = -np.log(10**(-3)) / t60_por_banda[i]
+        componente = np.exp(-tau * t) * np.cos(2 * np.pi * fc * t)
         senal_total += componente
-    
-    return t, normalizar_RI(senal_total)
+
+    # Insertar 0.05 s de silencio al inicio
+    prepend_samples = int(0.05 * fs)
+    ir_desplazada = np.concatenate([np.zeros(prepend_samples), senal_total])
+
+    # Ajustar longitud final
+    if len(ir_desplazada) < len(t):
+        ir_extendida = np.concatenate([ir_desplazada, np.zeros(len(t) - len(ir_desplazada))])
+    else:
+        ir_extendida = ir_desplazada[:len(t)]
+
+    # Calcular potencia de la IR
+    ir_power = np.mean(ir_extendida**2)
+    noise_power = ir_power / (10**(SNR_dB / 10))
+
+    # Generar ruido rosa del mismo largo
+    duracion_ruido = len(ir_extendida) / fs
+    ruido, _ = generar_ruido_rosa(duracion_ruido, fs=fs)
+    ruido = ruido[:len(ir_extendida)].astype(np.float64)  # ← Conversión explícita a float
+
+    # Aplicar rampa de fade out (último 10% de la señal)
+    n = len(ruido)
+    fade_len = int(0.10 * n)
+    ventana = np.ones(n)
+    ventana[-fade_len:] *= 0.5 * (1 + np.cos(np.linspace(0, np.pi, fade_len)))  # Hann invertida
+
+    ruido *= ventana
+
+
+    # Escalar ruido para respetar el SNR
+    ruido_power = np.mean(ruido**2)
+    factor_ruido = np.sqrt(noise_power / ruido_power)
+    ruido_escalado = ruido * factor_ruido
+
+    # Sumar ruido a la IR extendida
+    senal_con_ruido = ir_extendida + ruido_escalado
+
+    # Normalizar señal final
+    senal_normalizada = normalizar_RI(senal_con_ruido)
+
+    return t, senal_normalizada
+
 
 
 
@@ -53,63 +95,56 @@ def funcRI(fi, sine):
 
 
 
-def filtronorma(senial, fs, tipo='octava', order=4):
-    audiodata, fs = sf.read(senial)
+def filtronorma(signal_in, fs, fc, tipo='octava'):
     """
-    Aplica filtros de octava o tercio de octava según norma IEC 61260.
-    
+    Aplica filtro bandpass Butterworth de octava o tercio de octava en la frecuencia fc
+    según IEC 61260, sobre la señal de entrada.
+
     Parámetros:
-        audiodata (array): Señal de audio.
-        fs (float): Frecuencia de muestreo (Hz).
-        band_type (str): 'octave' o 'third-octave'.
-        order (int): Orden del filtro (recomendado: 4).
-        zero_phase (bool): Si True, usa filtrado sin fase (filtfilt).
-    
+        signal_in (np.array): Señal a filtrar (1D).
+        fs (int): Frecuencia de muestreo.
+        fc (float): Frecuencia central de la banda a filtrar.
+        tipo (str): 'octava' o 'tercio' (por defecto 'octava').
+
     Retorna:
-        dict: {frecuencia_central: señal_filtrada}
+        np.array: Señal filtrada.
     """
-    # Definir frecuencias centrales según IEC 61260
     if tipo == 'octava':
-        centers = [31.5, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
-        G = 1.0  # Ancho de banda para octava
-    elif tipo == 'third-octave':
-        centers = [12.5, 16, 20, 25, 31.5, 40, 50, 63, 80, 100, 125, 160, 200, 
-                   250, 315, 400, 500, 630, 800, 1000, 1250, 1600, 2000, 2500, 
-                   3150, 4000, 5000, 6300, 8000, 10000, 12500, 16000, 20000]
-        G = 1.0 / 3.0  # Ancho de banda para tercio
+        G = 1.0 / 2.0
+    elif tipo == 'tercio':
+        G = 1.0 / 6.0
     else:
-        raise ValueError("band_type debe ser 'octave' o 'third-octave'")
+        raise ValueError("El parámetro 'tipo' debe ser 'octava' o 'tercio'.")
 
-    factor = 2 ** (G / 2)  # Cálculo del factor de banda
+    factor = 2 ** G
     nyquist = fs / 2
-    filtroporbandas = {}
 
-    for fc in centers:
-        # Calcular frecuencias de corte
-        lower = fc / factor
-        upper = fc * factor
-        
-        # Saltar bandas que exceden Nyquist
-        if upper > nyquist:
-            continue
-        
-        # Diseñar filtro Butterworth en formato SOS
-        sos = signal.iirfilter(
-            N=order, 
-            Wn=[lower, upper], 
-            btype='band', 
-            analog=False, 
-            ftype='butter', 
-            fs=fs, 
-            output='sos'
-        )
-        
- 
-        filtered_data = signal.sosfilt(sos, audiodata)
-        
-        filtroporbandas[fc] = filtered_data
+    lower = fc / factor
+    upper = fc * factor
 
-    return filtroporbandas
+    if upper > nyquist:
+        raise ValueError(f"La frecuencia superior {upper} Hz excede el límite de Nyquist ({nyquist} Hz).")
+
+    # Orden dinámico del filtro (puede ajustarse)
+    if fc <= 200:
+        orden = 8
+    elif fc < 1000:
+        orden = 6
+    else:
+        orden = 4
+
+    sos = signal.iirfilter(
+        N=orden,
+        Wn=[lower, upper],
+        btype='band',
+        analog=False,
+        ftype='butter',
+        fs=fs,
+        output='sos'
+    )
+
+    filtrada = signal.sosfilt(sos, signal_in)
+    return filtrada
 
 def ir_a_log(signal, fs = 44100):
     
@@ -147,6 +182,86 @@ def ir_a_log(signal, fs = 44100):
 
     return r
     return irlog
+
+
+def filtro(banda='octava'):
+    '''
+    Genera filtros de cada frecuencia centra de la respuesta al impulso.
+    Genera un archivo wav por cada frecuencia filtada.
+
+    Nota: si los archivos wav ya existen, serán reemplazadas.
+
+    Parámetros
+    ----------
+    ir: Ruta
+        Ruta donde se encuentra la respuesta al impulso en formato wav.
+    return: Lista
+        Lista con los arrays correspondientes a los filtros por banda de octava.
+    '''
+    # Se ingresa la respuesta al impulso como archivo wav
+    audio, fs = sf.read('ir.wav')
+
+    # Lista donde se guardan las señales filtradas
+    filtros = []
+    frecuencias = []
+
+    if banda == 'octava':
+        # Bandas por octava
+        frecuencias = [31.25,62.5,125,250,500,1000,2000,4000,8000]
+        G = 1.0/2.0
+
+    else:
+        # Banda tercio por octava
+        frecuencias = [12.5, 16, 20, 25, 31.5, 40, 50, 63, 80, 100, 125, 160, 200, 
+               250, 315, 400, 500, 630, 800, 1000, 1250, 1600, 2000, 2500, 
+               3150, 4000, 5000, 6300, 8000, 10000, 12500]
+        G = 1.0/6.0
+
+    for fi in frecuencias:
+        #Selección de octava - G = 1.0/2.0 / 1/3 de Octava - G=1.0/6.0
+        fo = 0
+        factor = np.power(2, G)
+        centerFrequency_Hz = fi 
+
+        #Calculo los extremos de la banda a partir de la frecuencia central
+        lowerCutoffFrequency_Hz=centerFrequency_Hz/factor;
+        upperCutoffFrequency_Hz=centerFrequency_Hz*factor;
+
+        # El orden del filtro varía con la frecuencia central
+
+        # Orden 8 para frecuencias menores a 200Hz
+        if fi <= 200:
+            fo = 8
+        # Orden 6 para frecuencias entre 200Hz y 1kHz
+        if fi > 200 and fi < 1000:
+            fo = 6
+        # Orden 4 para frecuencias mayores a 1kHz
+        if fi >= 1000:
+            fo = 4
+
+        # Extraemos los coeficientes del filtro 
+        b,a = signal.iirfilter(fo, [2*np.pi*lowerCutoffFrequency_Hz,2*np.pi*upperCutoffFrequency_Hz],
+                                    rs=60, btype='band', analog=True,
+                                    ftype='butter') 
+
+        # para aplicar el filtro es más óptimo
+        sos = signal.iirfilter(fo, [lowerCutoffFrequency_Hz,upperCutoffFrequency_Hz],
+                                    rs=60, btype='band', analog=False,
+                                    ftype='butter', fs=fs, output='sos') 
+
+        w, h = signal.freqs(b,a)
+
+        # Aplicando filtro al audio
+        filt = signal.sosfilt(sos, audio)
+
+        # Se guarda la señal filtrada en una lista
+        filtros.append(filt)
+
+        # Se genera un archivo .wav correspondiente a la señal filtrada en fi
+        sf.write(f'filtro_{fi}Hz.wav',filt,fs)
+
+    return filtros
+
 
 
 def aplicar_transformada_hilbert(senal):
@@ -216,39 +331,55 @@ def promedio_movil_bucle(x, L):
     print(f"Tiempo de ejecución: {tiempof - tiempoi:.6f} segundos")
     # Normalizar la señal resultante
     return y
+
+def schroeder(ir):
+    """
+    Calcula la curva de Schroeder (energía acumulada inversa) y la normaliza.
+    
+    Parámetros:
+        ir (np.array): Respuesta al impulso
+        
+    Retorna:
+        np.array: Curva de Schroeder en dB
+    """
+    energy = ir**2
+    sch = np.cumsum(energy[::-1])[::-1]  # Suma acumulada inversa
+    
+    # Manejar caso de señal con energía cero
+    if np.max(sch) <= 0:
+        return np.zeros_like(sch)
+    
+    sch /= np.max(sch)  # Normalizar
+    sch_dB = 10 * np.log10(sch + 1e-12)  # Evitar log(0)
+    return sch_dB
+
 def schroeder_integral(ir, dt=1.0):
     """
     Calcula la integral de Schroeder a partir de una respuesta al impulso (ir).
     
     Parámetros:
-      ir: np.array
-          Respuesta al impulso.
-      dt: float, opcional
-          Intervalo de muestreo (tiempo entre muestras). Por defecto 1.0.
-    
+        ir: np.array - Respuesta al impulso
+        dt: float - Intervalo de tiempo entre muestras (1/fs)
+        
     Retorna:
-      energy_decay: np.array
-          Curva de energía integrada (acumulada hacia adelante en el tiempo).
-      energy_decay_db: np.array
-          Versión en decibelios de la energía integrada, normalizada a la energía inicial.
+        tuple: (energy_decay, energy_decay_db)
     """
-    # 1. Calcular la energía instantánea (la respuesta al impulso elevada al cuadrado)
     squared_ir = np.square(ir)
     
-    # 2. Calcular la suma acumulada hacia atrás (integración inversa)
-    # Se voltea el vector, se realiza la suma acumulada y se vuelve a girar.
+    # Calcular la suma acumulada hacia atrás
     energy_decay = np.flip(np.cumsum(np.flip(squared_ir))) * dt
     
-    # 3. Normalizar la curva: se divide por el valor máximo (energía total)
-    energy_decay_norm = energy_decay / np.max(energy_decay)
+    # Normalizar
+    max_energy = np.max(energy_decay)
+    if max_energy <= 0:
+        return energy_decay, np.zeros_like(energy_decay)
     
-    # 4. Convertir a decibelios; se añade un pequeño valor para evitar log(0)
+    energy_decay_norm = energy_decay / max_energy
     energy_decay_db = 10 * np.log10(energy_decay_norm + 1e-12)
     
     return energy_decay, energy_decay_db
 
-def lundeby_extremo_integral(ir, t, margin=10, perc_tail=10, offset=5, max_iter=20, tol=1e-3):
-    
+def lundeby(ir, fs, margin=10, perc_tail=10, offset=5, max_iter=20, tol=1e-3):
     """
     Estima el "extremo superior" de la integral de Schroeder usando el método Lundeby iterativo,
     siguiendo el siguiente esquema:
@@ -263,11 +394,11 @@ def lundeby_extremo_integral(ir, t, margin=10, perc_tail=10, offset=5, max_iter=
          para actualizar la estimación del ruido.
       7. Se repiten los pasos 4 a 6 hasta que la variación en t_intersect sea menor que 'tol'.
     
-    Parámetros:
+    Parámetros modificados:
       ir       : np.array
                  Respuesta al impulso.
-      t        : np.array
-                 Vector de tiempo correspondiente.
+      fs       : int
+                 Frecuencia de muestreo (Hz).
       margin   : float
                  Margen en dB (por ejemplo, 10 dB) que se utiliza para definir el rango
                  de la regresión.
@@ -281,18 +412,14 @@ def lundeby_extremo_integral(ir, t, margin=10, perc_tail=10, offset=5, max_iter=
                  Tolerancia para determinar la convergencia en el tiempo de intersección.
     
     Retorna:
-      t_intersect     : float
-                        Tiempo en el que la regresión se cruza con el nivel de ruido.
-      slope           : float
-                        Pendiente de la regresión.
-      intercept       : float
-                        Intercepto de la regresión.
-      noise_level     : float
-                        Nivel de ruido final (en dB).
-      energy_decay_db : np.array
-                        Curva de decaimiento en dB (resultado de la integral de Schroeder).
+      ir_truncated : np.array
+                     Respuesta al impulso truncada en el punto de intersección con el ruido.
     """
-    dt = t[1] - t[0]
+    # Crear vector de tiempo basado en la longitud de la señal y fs
+    t = np.arange(len(ir)) / fs
+    dt = t[1] - t[0]  # Intervalo de tiempo entre muestras
+    
+    # Calcular la integral de Schroeder en dB
     _, energy_decay_db = schroeder_integral(ir, dt=dt)
     
     # (Paso 2) Estimar el nivel de ruido a partir del final (último perc_tail% de la curva)
@@ -300,6 +427,8 @@ def lundeby_extremo_integral(ir, t, margin=10, perc_tail=10, offset=5, max_iter=
     noise_level = np.mean(energy_decay_db[-num_tail:])
     
     t_intersect_old = None
+    t_intersect = 0  # Inicializar con valor por defecto
+    
     for iteration in range(max_iter):
         # (Paso 3) Se define el rango para la regresión:
         #      - Punto izquierdo: 0 dB.
@@ -331,11 +460,12 @@ def lundeby_extremo_integral(ir, t, margin=10, perc_tail=10, offset=5, max_iter=
         idx_end = min(idx_start + max(int(0.1 * len(t)), 1), len(t))
         if idx_start < idx_end:
             noise_level = np.mean(energy_decay_db[idx_start:idx_end])
-        
-        # Se podrían implementar más subdivisiones o calcular nuevos RMS locales (pasos 5–6 adicionales)
-        # según se requiera alcanzar mayor precisión.
     
-    return t_intersect, slope, intercept, noise_level, energy_decay_db
+    # Truncar la señal en el punto de intersección
+    idx_intersect = int(t_intersect * fs)
+    return ir[:idx_intersect] if idx_intersect < len(ir) else ir
+    
+  
 
 def regresion_lineal_iso3382(x, y):
     """
@@ -395,93 +525,76 @@ def regresion_lineal_iso3382(x, y):
 
     return pendiente, ordenada_origen, y_pred
 
-def param_edt(m):
-    '''
-    Calcula el tiempo de decaimiento temprano de la respuesta al impulso de un recinto.
-
+def param_edt(signal, fs=44100):
+    """
+    Calcula el tiempo de decaimiento temprano (EDT) de la respuesta al impulso.
+    
     Parámetros:
-    -----------
-    m: float
-        Pendiente de la recta obtenida por regresión lineal.
-    return: float
-        Devuelve el valor del EDT.
-    '''
-    ## Early Decay Time (EDT)
+        signal: np.array - Respuesta al impulso
+        fs: int - Frecuencia de muestreo (Hz)
+        
+    Retorna:
+        float: Valor de EDT en segundos
+    """
+    # Calcular la curva de Schroeder
+    sch_db = schroeder(signal)
+    
+    # Encontrar el rango para la regresión (primeros 10 dB de decaimiento)
+    max_db = np.max(sch_db)
+    start_idx = np.argmax(sch_db >= (max_db - 0.1))
+    end_idx = np.argmax(sch_db <= (max_db - 10.0))
+    
+    # Ajustar índices si no se encuentra el punto final
+    if end_idx == 0:
+        end_idx = len(sch_db) - 1
+    
+    # Crear vector de tiempo
+    t = np.arange(len(signal)) / fs
+    
+    # Extraer segmento para regresión
+    x = t[start_idx:end_idx]
+    y = sch_db[start_idx:end_idx]
+    
+    # Realizar regresión lineal
+    if len(x) < 2:
+        return 0.0  # No hay suficientes puntos para regresión
+    
+    slope, intercept = np.polyfit(x, y, 1)
+    
+    # Calcular EDT
+    return -60 / slope
 
-    edt = -60 / m
 
-    return edt
-
-
-def param_c80(signal,t=50,fs=44100):
-    '''
-    Calcula el C80 de la respuesta al impulso ingresada con la posibilidad
-    de que el usuario elija el tiempo que quiere tomar según el recinto.
-
-    Parámetros:
-    -----------
-    signal: Numpy Array
-        Corresponde a la respuesta al impulso del recinto.
-    t: int
-        Valor en milisegundos que requiera el usuario.
-    fs: int
-        Frecuencia de muestreo correspondiente a la respuesta al impulso.
-    return: float
-        Devuelve el valor del C80.
-    '''
-    # C80 o "claridad"
-
-    # Se pasa de milisegundos a segundos
-    t = t / 1000  
-
-    # Se recorta la IR hasta el extremo superior
-    pre80 = signal[:fs*t]
-    post80 = signal[fs*t:]
-
-    # Calcula la energía del primer tramo
+# param_c80 
+def param_c80(signal, fs=44100, t=80):
+    t_sec = t / 1000.0  # Convertir a segundos
+    n_samples = int(fs * t_sec)  # Convertir a entero
+    # Asegurar que no exceda la longitud
+    if n_samples > len(signal):
+        n_samples = len(signal)
+    pre80 = signal[:n_samples]
+    post80 = signal[n_samples:]
+    
     energia_pre80 = np.sum(pre80**2)
-
-    # Calcula la energía del segundo tramo
     energia_post80 = np.sum(post80**2)
-
+    
     if energia_post80 == 0:
-        return 0
+        return 0.0
+    
+    return 10 * np.log10(energia_pre80 / energia_post80)
 
-    # Se calcula el C80 
-    c80 = 10 * np.log10(energia_pre80 / energia_post80)
-
-    return c80
-
-def param_d50(signal,fs=44100):
-    '''
-    Calcula el D50 de la respuesta al impulso ingresada.
-
-    Parámetros:
-    -----------
-    signal: Numpy Array
-        Corresponde a la respuesta al impulso del recinto
-    fs: int
-        Frecuencia de muestreo correspondiente a la respuesta al impulso.
-    return: floar
-        Devuelve el valor del D50.
-    '''
-    ## D50 o "definición"
-
-    t = 0.05 
-
-    # Se recorta la IR hasta el extremo superior
-    pre50 = signal[:fs*t]
-
-    # Calcula la energía del primer tramo
+# param_d50 
+def param_d50(signal, fs=44100):
+    t_sec = 0.05
+    n_samples = int(fs * t_sec)  # Convertir a entero
+    if n_samples > len(signal):
+        n_samples = len(signal)
+    pre50 = signal[:n_samples]
+    
     energia_pre50 = np.sum(pre50**2)
-
-    # Calcula la energía total de la señal 
-    energia_signal= np.sum(signal**2)
-
-    if energia_signal == 0:
-        return 0
-
-    # Se calcula el C80 
-    d50 = energia_pre50 / energia_signal
-
-    return d50
+    energia_total = np.sum(signal**2)
+    
+    if energia_total == 0:
+        return 0.0
+    
+    return energia_pre50 / energia_total
