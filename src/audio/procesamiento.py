@@ -84,13 +84,36 @@ def sintetizar_respuesta_impulso(t60_por_banda, fs, duracion, frecuencias_centra
 
 
 
-def funcRI(fi, sine):
+def funcRI(fi, sine, fs=44100, tmax=20.0):
+
     datosfi, fs = sf.read(fi)  # Cargar el archivo de respuesta al impulso
     datossine, fs = sf.read(sine)  # Cargar el archivo de señal de entrada (sine sweep)
-    # Realizar la convolución
+# Realizamos la convolución usando fftconvolve (modo 'full')
     RI = signal.fftconvolve(datossine, datosfi, mode='full')
-    # Normalizar la señal resultante y grabarla como un archivo WAV   
-    return RI
+    """
+    Recorta la señal RI desde el máximo hasta tmax segundos después.
+    
+    Parámetros:
+        RI: Respuesta al impulso (array-like).
+        fs: Frecuencia de muestreo (Hz).
+        
+    Retorna:
+        recorte: Señal recortada desde el máximo hasta tmax segundos después.
+    """
+    # Encontramos el índice del máximo en la señal convolucionada
+    max_idx = np.argmax(RI)
+
+# Número de muestras correspondientes a tmax segundos
+    samples_tmax = int(fs * tmax)
+
+# Recortamos la señal desde el índice del máximo hasta tmax segundos después
+# (si la longitud es menor a max_idx+samples_tmax, tomamos hasta el final)
+    if max_idx + samples_tmax <= len(RI):
+        recorte = RI[max_idx: max_idx + samples_tmax]
+    else:
+        recorte = RI[max_idx:]
+
+    return recorte
 
 
 
@@ -279,7 +302,7 @@ def aplicar_transformada_hilbert(senal):
     """
     # Calcular la señal analítica utilizando la función hilbert de SciPy.
     analitica = signal.hilbert(senal)
-    return normalizar_RI(np.abs(analitica))
+    return np.abs(analitica)
 def promedio_movil_convolucion(senal, L):
     """
     Aplica el promedio móvil a la señal x usando convolución.
@@ -302,7 +325,7 @@ def promedio_movil_convolucion(senal, L):
     #tiempof = time.end()
     #print(f"Tiempo de ejecución: {tiempof - tiempoi:.6f} segundos") 
     return y
-def promedio_movil_bucle(x, L):
+def promedio_movil(x, L):
     """
     Aplica el promedio móvil a la señal x usando bucles.
     
@@ -316,41 +339,49 @@ def promedio_movil_bucle(x, L):
       y: np.array
          Señal filtrada.
     """
-    tiempoi = time.start()
-    N = len(x)
-    y = np.zeros_like(x, dtype=float)
-    
-    for i in range(N):
-        if i < L - 1:
-            # Para índices iniciales, promediamos las muestras disponibles
-            y[i] = np.sum(x[:i+1]) / (i+1)
-        else:
-            # Cuando hay suficientes muestras, usamos la ventana completa
-            y[i] = np.sum(x[i-L+1:i+1]) / L
-    tiempof = time.end()
-    print(f"Tiempo de ejecución: {tiempof - tiempoi:.6f} segundos")
-    # Normalizar la señal resultante
-    return y
 
-def schroeder(ir):
+    smooth = signal.medfilt(x,L)
+
+
+    # # tiempoi = time.start()
+    # N = len(x)
+    # y = np.zeros_like(x, dtype=float)
+    
+    # for i in range(N):
+    #     if i < L - 1:
+    #         # Para índices iniciales, promediamos las muestras disponibles
+    #         y[i] = np.sum(x[:i+1]) / (i+1)
+    #     else:
+    #         # Cuando hay suficientes muestras, usamos la ventana completa
+    #         y[i] = np.sum(x[i-L+1:i+1]) / L
+    # # tiempof = time.end()
+    # # print(f"Tiempo de ejecución: {tiempof - tiempoi:.6f} segundos")
+    # # Normalizar la señal resultante
+    return smooth
+
+def schroeder(ir,cruce=None):
     """
     Calcula la curva de Schroeder (energía acumulada inversa) y la normaliza.
     
     Parámetros:
-        ir (np.array): Respuesta al impulso
-        
-    Retorna:
-        np.array: Curva de Schroeder en dB
+    -----------
+    ir: Numpy Array
+        Señal a la que se le calcula la integral de Schroeder.
+    cruce: int
+        Punto de cruce corte de la señal calculado por Lundeby.
+    return: Numpy Array
+        Devuelve la integral de Schroedery en escala logarítmica.
     """
+    # Si se calculó Lundeby, la señal se recorta hasta el punto de cruce
+    if cruce is not None:
+        ir = ir[:cruce]
+
+    # Se calcula la energía acumulada inversa
     energy = ir**2
-    sch = np.cumsum(energy[::-1])[::-1]  # Suma acumulada inversa
-    
-    # Manejar caso de señal con energía cero
-    if np.max(sch) <= 0:
-        return np.zeros_like(sch)
-    
+    sch = np.cumsum(energy[::-1])[::-1]
     sch /= np.max(sch)  # Normalizar
-    sch_dB = 10 * np.log10(sch + 1e-12)  # Evitar log(0)
+    sch_dB = 10 * np.log10(sch + 1e-12)
+
     return sch_dB
 
 def schroeder_integral(ir, dt=1.0):
@@ -379,93 +410,52 @@ def schroeder_integral(ir, dt=1.0):
     
     return energy_decay, energy_decay_db
 
-def lundeby(ir, fs, margin=10, perc_tail=10, offset=5, max_iter=20, tol=1e-3):
+def lundeby(ir, fs=44100, segment_length_ms=10):
     """
-    Estima el "extremo superior" de la integral de Schroeder usando el método Lundeby iterativo,
-    siguiendo el siguiente esquema:
-    
-      1. Se calcula la curva de energía (integral de Schroeder) en dB.
-      2. Se estima el nivel de ruido (promedio de los últimos 'perc_tail'% de la curva).
-      3. Se selecciona la parte de la curva comprendida entre 0 dB (punto izquierdo) y
-         (nivel de ruido + offset) dB (punto derecho, típicamente 5–10 dB por encima del ruido).
-      4. Se realiza una regresión lineal sobre esa porción para obtener la pendiente y el intercepto.
-      5. Se calcula el tiempo de intersección de la línea de regresión con el nivel de ruido.
-      6. Se redefine una ventana local (mínimo 10% de la RI) a partir del punto de cruce (punto 7)
-         para actualizar la estimación del ruido.
-      7. Se repiten los pasos 4 a 6 hasta que la variación en t_intersect sea menor que 'tol'.
-    
-    Parámetros modificados:
-      ir       : np.array
-                 Respuesta al impulso.
-      fs       : int
-                 Frecuencia de muestreo (Hz).
-      margin   : float
-                 Margen en dB (por ejemplo, 10 dB) que se utiliza para definir el rango
-                 de la regresión.
-      perc_tail: float
-                 Porcentaje de la cola de la señal que se usa para estimar el nivel de ruido (e.g., 10%).
-      offset   : float
-                 Offset en dB que se suma al nivel de ruido para definir el punto derecho de la regresión (5–10 dB).
-      max_iter : int
-                 Número máximo de iteraciones.
-      tol      : float
-                 Tolerancia para determinar la convergencia en el tiempo de intersección.
-    
-    Retorna:
-      ir_truncated : np.array
-                     Respuesta al impulso truncada en el punto de intersección con el ruido.
+    Estima el punto de cruce entre decaimiento y ruido usando Lundeby.
+    También devuelve la curva de Schroeder.
+
+    Parámetros:
+    -----------
+    ir: Numpy Array
+        Respuesta al impulso.
+    fs: int
+        Frecuencia de muestreo.
+    segment_length_ms: float
+        Longitud del segmento para análisis (ms).
+    returns:
+    idx_cross: int 
+        Índice del punto de cruce.
+    sch_db: Numpy Array 
+        Curva de Schroeder en dB.
     """
-    # Crear vector de tiempo basado en la longitud de la señal y fs
-    t = np.arange(len(ir)) / fs
-    dt = t[1] - t[0]  # Intervalo de tiempo entre muestras
-    
-    # Calcular la integral de Schroeder en dB
-    _, energy_decay_db = schroeder_integral(ir, dt=dt)
-    
-    # (Paso 2) Estimar el nivel de ruido a partir del final (último perc_tail% de la curva)
-    num_tail = max(int(len(energy_decay_db) * perc_tail / 100), 1)
-    noise_level = np.mean(energy_decay_db[-num_tail:])
-    
-    t_intersect_old = None
-    t_intersect = 0  # Inicializar con valor por defecto
-    
-    for iteration in range(max_iter):
-        # (Paso 3) Se define el rango para la regresión:
-        #      - Punto izquierdo: 0 dB.
-        #      - Punto derecho: noise_level + offset (usualmente 5–10 dB por encima del ruido).
-        upper_bound = 0  # 0 dB (punto inicial)
-        lower_bound = noise_level + offset  # Umbral inferior para la selección
-        indices = np.where((energy_decay_db <= upper_bound) & (energy_decay_db >= lower_bound))[0]
-        
-        if len(indices) < 2:
-            print(f"Iteración {iteration}: No hay suficientes puntos para ajustar; se aborta el proceso.")
-            break
-        
-        # (Paso 4) Ajuste lineal (regresión) sobre los puntos de la curva seleccionada.
-        t_fit = t[indices]
-        dB_fit = energy_decay_db[indices]
-        slope, intercept = np.polyfit(t_fit, dB_fit, 1)
-        
-        # (Paso 5) Calcular el punto de cruce: se resuelve slope*t + intercept = noise_level.
-        t_intersect = (noise_level - intercept) / slope
-        
-        # Comprobación de convergencia
-        if t_intersect_old is not None and np.abs(t_intersect - t_intersect_old) < tol:
-            break
-        t_intersect_old = t_intersect
-        
-        # (Paso 7) Actualizar la estimación de ruido:
-        # Se define una ventana local a partir del punto de cruce que abarque al menos el 10% de la RI.
-        idx_start = np.searchsorted(t, t_intersect)
-        idx_end = min(idx_start + max(int(0.1 * len(t)), 1), len(t))
-        if idx_start < idx_end:
-            noise_level = np.mean(energy_decay_db[idx_start:idx_end])
-    
-    # Truncar la señal en el punto de intersección
-    idx_intersect = int(t_intersect * fs)
-    return ir[:idx_intersect] if idx_intersect < len(ir) else ir
-    
-  
+    # 1. Calcular la energía y la curva de Schroeder
+    energy = ir**2
+    sch = np.cumsum(energy[::-1])[::-1]
+    sch /= np.max(sch)
+    sch_db = 10 * np.log10(sch + 1e-12)
+
+    # 2. Calcular tamaño de segmento en muestras
+    seg_len = int(fs * segment_length_ms / 1000)
+
+    # 3. Dividir en segmentos y calcular energía media en dB
+    n_segments = len(sch_db) // seg_len
+    seg_means = np.array([
+        np.mean(sch_db[i*seg_len:(i+1)*seg_len]) for i in range(n_segments)
+    ])
+
+    # 4. Estimar nivel de ruido (promedio últimos 10% segmentos)
+    noise_level = np.mean(seg_means[int(0.9*n_segments):])
+
+    # 5. Buscar cruce: primer segmento donde el nivel es menor que el ruido + margen
+    margin_db = 10  # margen para evitar ruidos intermitentes
+    cross_segment = np.where(seg_means < noise_level + margin_db)[0]
+    if len(cross_segment) == 0:
+        idx_cross = len(ir)  # No cruza, usamos todo
+    else:
+        idx_cross = cross_segment[0] * seg_len
+
+    return idx_cross, sch_db
 
 def regresion_lineal_iso3382(x, y):
     """
@@ -525,76 +515,131 @@ def regresion_lineal_iso3382(x, y):
 
     return pendiente, ordenada_origen, y_pred
 
-def param_edt(signal, fs=44100):
-    """
-    Calcula el tiempo de decaimiento temprano (EDT) de la respuesta al impulso.
-    
+def param_edt(m,b):
+    '''
+    Calcula el tiempo de decaimiento temprano de la respuesta al impulso de un recinto.
+
     Parámetros:
-        signal: np.array - Respuesta al impulso
-        fs: int - Frecuencia de muestreo (Hz)
-        
-    Retorna:
-        float: Valor de EDT en segundos
+    -----------
+    m: float
+        Pendiente de la recta obtenida por regresión lineal.
+    b: float
+        Ordenada al origen de la recta obtenida por regresión lineal.
+    return: float
+        Devuelve el valor del EDT.
+    '''
+    dB_ini = 0     # Inicio del decaimiento (nivel máximo)
+    dB_fin = -10   # Nivel a alcanzar
+
+    t0 = (dB_ini - b) / m
+    t10 = (dB_fin - b) / m
+
+    edt = 6 * (t10 - t0)
+
+    return edt
+
+def param_t60(m,b,metodo='t30'):
     """
-    # Calcular la curva de Schroeder
-    sch_db = schroeder(signal)
-    
-    # Encontrar el rango para la regresión (primeros 10 dB de decaimiento)
-    max_db = np.max(sch_db)
-    start_idx = np.argmax(sch_db >= (max_db - 0.1))
-    end_idx = np.argmax(sch_db <= (max_db - 10.0))
-    
-    # Ajustar índices si no se encuentra el punto final
-    if end_idx == 0:
-        end_idx = len(sch_db) - 1
-    
-    # Crear vector de tiempo
-    t = np.arange(len(signal)) / fs
-    
-    # Extraer segmento para regresión
-    x = t[start_idx:end_idx]
-    y = sch_db[start_idx:end_idx]
-    
-    # Realizar regresión lineal
-    if len(x) < 2:
-        return 0.0  # No hay suficientes puntos para regresión
-    
-    slope, intercept = np.polyfit(x, y, 1)
-    
-    # Calcular EDT
-    return -60 / slope
+    Calcula T60 extrapolado a partir de una recta ya ajustada.
 
+    Parámetros:
+    -----------
+    m: float
+        Pendiente de la recta obtenida por regresión lineal.
+    b: float
+        Ordenada al origen de la recta obtenida por regresión lineal.
+    metodo: string
+        Metodo de transposición para el T60: 't10','t20','t30' (por defecto).
+    return: float
+        Devuelve el valor del T60.
+    """
+    if metodo == 't10':
+        dB_ini, dB_fin = -5, -15
+    elif metodo == 't20':
+        dB_ini, dB_fin = -5, -25
+    elif metodo == 't30':
+        dB_ini, dB_fin = -5, -35
+    else:
+        raise ValueError("Método inválido. Usa 't10', 't20' o 't30'.")
 
-# param_c80 
-def param_c80(signal, fs=44100, t=80):
-    t_sec = t / 1000.0  # Convertir a segundos
-    n_samples = int(fs * t_sec)  # Convertir a entero
-    # Asegurar que no exceda la longitud
-    if n_samples > len(signal):
-        n_samples = len(signal)
-    pre80 = signal[:n_samples]
-    post80 = signal[n_samples:]
-    
+    t_ini = (dB_ini - b) / m
+    t_fin = (dB_fin - b) / m
+    tramo = t_fin - t_ini
+    multiplicador = 60 / abs(dB_fin - dB_ini)
+
+    t60 = tramo * multiplicador
+
+    return t60
+
+def param_c80(signal,t=50,fs=44100):
+    '''
+    Calcula el C80 de la respuesta al impulso ingresada con la posibilidad
+    de que el usuario elija el tiempo que quiere tomar según el recinto.
+
+    Parámetros:
+    -----------
+    signal: Numpy Array
+        Corresponde a la respuesta al impulso del recinto.
+    t: int
+        Valor en milisegundos que requiera el usuario (50ms por defecto).
+    fs: int
+        Frecuencia de muestreo correspondiente a la respuesta al impulso.
+    return: float
+        Devuelve el valor del C80.
+    '''
+    # C80 o "claridad"
+
+    # Se pasa de milisegundos a segundos
+    t = t / 1000
+
+    # Se recorta la IR hasta el extremo superior
+    pre80 = signal[:int(fs*t)]
+    post80 = signal[int(fs*t):]
+
+    # Calcula la energía del primer tramo
     energia_pre80 = np.sum(pre80**2)
-    energia_post80 = np.sum(post80**2)
-    
-    if energia_post80 == 0:
-        return 0.0
-    
-    return 10 * np.log10(energia_pre80 / energia_post80)
 
-# param_d50 
-def param_d50(signal, fs=44100):
-    t_sec = 0.05
-    n_samples = int(fs * t_sec)  # Convertir a entero
-    if n_samples > len(signal):
-        n_samples = len(signal)
-    pre50 = signal[:n_samples]
-    
+    # Calcula la energía del segundo tramo
+    energia_post80 = np.sum(post80**2)
+
+    if energia_post80 == 0:
+        return 0
+
+    # Se calcula el C80
+    c80 = 10 * np.log10(energia_pre80 / energia_post80)
+
+    return c80
+
+def param_d50(signal,fs=44100):
+    '''
+    Calcula el D50 de la respuesta al impulso ingresada.
+
+    Parámetros:
+    -----------
+    signal: Numpy Array
+        Corresponde a la respuesta al impulso del recinto
+    fs: int
+        Frecuencia de muestreo correspondiente a la respuesta al impulso.
+    return: floar
+        Devuelve el valor del D50.
+    '''
+    ## D50 o "definición"
+
+    t = 0.05
+
+    # Se recorta la IR hasta el extremo superior
+    pre50 = signal[:int(fs*t)]
+
+    # Calcula la energía del primer tramo
     energia_pre50 = np.sum(pre50**2)
-    energia_total = np.sum(signal**2)
-    
-    if energia_total == 0:
-        return 0.0
-    
-    return energia_pre50 / energia_total
+
+    # Calcula la energía total de la señal
+    energia_signal= np.sum(signal**2)
+
+    if energia_signal == 0:
+        return 0
+
+    # Se calcula el C80
+    d50 = energia_pre50 / energia_signal
+
+    return d50

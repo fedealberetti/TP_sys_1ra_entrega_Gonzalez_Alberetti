@@ -7,6 +7,7 @@ from utils.graficotemporal import graficar_dominio_temporal
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.io import wavfile
+import csv
 
 # --- Datos precargados ---
 banda8vas = [31.25, 62.5, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
@@ -73,180 +74,207 @@ def acciones_posteriores(nombre_sugerido):
 
 # --- Función para mostrar resultados en tabla ---
 def mostrar_resultados_tabla(resultados):
-    ventana = tk.Toplevel()
-    ventana.title("Resultados de Análisis")
-    ventana.geometry("800x600")
-    
-    # Crear Treeview con barra de desplazamiento
-    frame = tk.Frame(ventana)
-    frame.pack(fill="both", expand=True, padx=10, pady=10)
-    
-    # Barra de desplazamiento vertical
-    scrollbar = ttk.Scrollbar(frame, orient="vertical")
-    
-    # Crear Treeview
-    tree = ttk.Treeview(frame, columns=("Banda", "Parámetro", "Valor"), 
-                        show="headings", yscrollcommand=scrollbar.set)
-    
-    # Configurar columnas
-    tree.column("Banda", width=200, anchor="w")
-    tree.column("Parámetro", width=150, anchor="w")
-    tree.column("Valor", width=150, anchor="w")
-    
-    # Configurar encabezados
-    tree.heading("Banda", text="Banda")
-    tree.heading("Parámetro", text="Parámetro")
-    tree.heading("Valor", text="Valor")
-    
-    # Configurar barra de desplazamiento
-    scrollbar.config(command=tree.yview)
+    ventana_resultado = tk.Toplevel()
+    ventana_resultado.title("Parámetros calculados por banda")
+
+    frame = tk.Frame(ventana_resultado)
+    frame.pack(fill="both", expand=True)
+
+    tabla = ttk.Treeview(frame, show="headings")
+
+    # --- Columnas dinámicas ---
+    columnas = ["Parámetro"]
+    nombres_banda = [nombre for nombre, _ in resultados]
+    columnas.extend(nombres_banda)
+    tabla["columns"] = columnas
+
+    for col in columnas:
+        tabla.heading(col, text=col)
+        tabla.column(col, anchor="center", minwidth=80, stretch=True)
+
+    # --- Estilo visual con bordes y encabezados destacados ---
+    style = ttk.Style()
+    style.configure("Treeview.Heading", font=("Helvetica", 10, "bold"))
+    style.configure("Treeview", font=("Helvetica", 10), rowheight=25)
+    style.map("Treeview")
+
+    # --- Parámetros en el orden deseado ---
+    parametros_orden = ["T60", "EDT", "C50", "C80", "D50"]
+
+    # --- Organizar resultados por secciones ---
+    secciones = {
+        "General": [],
+        "Tercio de Octava": [],
+        "Octava": []
+    }
+
+    for nombre_banda, datos in resultados:
+        if nombre_banda.startswith("Tercio"):
+            secciones["Tercio de Octava"].append((nombre_banda, datos))
+        elif nombre_banda.startswith("Octava"):
+            secciones["Octava"].append((nombre_banda, datos))
+        else:
+            secciones["General"].append((nombre_banda, datos))
+
+    def agregar_filas(nombre_seccion, lista_datos):
+        # --- Separador visual de secciones ---
+        tabla.insert("", "end", values=(nombre_seccion.upper(), *[""] * (len(columnas) - 1)))
+
+        # Agregar filas por cada parámetro en orden
+        for param in parametros_orden:
+            fila = [param]
+            for nombre_banda, datos in lista_datos:
+                valor = datos.get(param, "")
+                if isinstance(valor, float):
+                    fila.append(f"{valor:.2f}")
+                else:
+                    fila.append(str(valor))
+            tabla.insert("", "end", values=fila)
+
+    for nombre_seccion in secciones:
+        agregar_filas(nombre_seccion, secciones[nombre_seccion])
+
+    # --- Scroll y empaque ---
+    scrollbar = ttk.Scrollbar(frame, orient="vertical", command=tabla.yview)
+    tabla.configure(yscrollcommand=scrollbar.set)
     scrollbar.pack(side="right", fill="y")
-    tree.pack(side="left", fill="both", expand=True)
-    
-    # Llenar con datos
-    for banda, datos in resultados:
-        for param, valor in datos.items():
-            # Solo mostrar parámetros numéricos (no datos crudos como Schroeder)
-            if not isinstance(valor, (np.ndarray, list)):
-                tree.insert("", "end", values=(banda, param, valor))
-    
-    # Botón para exportar
-    btn_exportar = tk.Button(ventana, text="Exportar a CSV", 
-                            command=lambda: exportar_csv(resultados))
-    btn_exportar.pack(pady=10)
+    tabla.pack(fill="both", expand=True)
 
-def exportar_csv(resultados):
-    archivo = filedialog.asksaveasfilename(
-        defaultextension=".csv",
-        filetypes=[("Archivos CSV", "*.csv"), ("Todos los archivos", "*.*")]
-    )
-    
-    if not archivo:
-        return
-    
-    try:
-        with open(archivo, 'w', encoding='utf-8') as f:
-            f.write("Banda,Parámetro,Valor\n")
-            for banda, datos in resultados:
-                for param, valor in datos.items():
-                    # Solo exportar parámetros numéricos
-                    if not isinstance(valor, (np.ndarray, list)):
-                        f.write(f'"{banda}","{param}","{valor}"\n')
-        messagebox.showinfo("Éxito", f"Datos exportados a:\n{archivo}")
-    except Exception as e:
-        messagebox.showerror("Error", f"No se pudo exportar:\n{str(e)}")
+    # --- Exportar CSV ---
+    def exportar_csv():
+        file_path = filedialog.asksaveasfilename(defaultextension=".csv", filetypes=[("CSV files", "*.csv")])
+        if file_path:
+            with open(file_path, mode="w", newline="") as file:
+                writer = csv.writer(file)
+                writer.writerow(columnas)
+                for row in tabla.get_children():
+                    writer.writerow(tabla.item(row)["values"])
+            messagebox.showinfo("Exportación", "Archivo CSV exportado correctamente.")
 
-# --- Función para calcular parámetros avanzados ---
+    tk.Button(ventana_resultado, text="Exportar como CSV", command=exportar_csv).pack(pady=10)
+
+
+
 def calcular_parametros_avanzados(opciones):
     # Aplicar suavizado
     if opciones["metodo"].get() == "hilbert":
-        señal = aplicar_transformada_hilbert(respuesta_generada)
+        smooth = aplicar_transformada_hilbert(respuesta_generada)
     else:
-        señal = promedio_movil_convolucion(respuesta_generada, opciones["L"].get())
-    
+        smooth = promedio_movil(respuesta_generada, opciones["L"].get())
+
     # Aplicar Lundeby si está seleccionado
     if opciones["usar_lundeby"].get():
-        señal = lundeby(señal, fs)
-    
-    # Preparar almacenamiento de resultados
+        cruce, smooth = lundeby(smooth)
+    else:
+        cruce = None
+
     resultados = []
-    nyquist = fs / 2  # Límite de Nyquist
-    
-    # Función interna para procesamiento
-    def procesar_banda(senal_actual, nombre_banda):
+    nyquist = fs / 2
+
+    # --- Función interna para análisis de una banda ---
+    def procesar_banda(senal_smoothed, nombre_banda, cruce=None):
         banda_resultados = {}
-        
-        # Análisis Schroeder si está seleccionado
+
         if opciones["hacer_schroeder"].get():
-            sch = schroeder(senal_actual)
-            banda_resultados["Schroeder"] = sch
-        
-        # Cálculo de parámetros
-        if opciones["edt"].get():
             try:
-                banda_resultados["EDT"] = param_edt(senal_actual, fs)
+                sch = schroeder(senal_smoothed, cruce)
+                banda_resultados["Schroeder"] = sch
+
+                if opciones["hacer_regresion"].get():
+                    tiempo = np.linspace(0, len(sch) / fs, len(sch))
+                    pendiente, ordenada, _ = regresion_lineal_iso3382(tiempo, sch)
+                    banda_resultados["Regresión"] = {
+                        "pendiente": pendiente,
+                        "ordenada": ordenada
+                    }
             except Exception as e:
-                print(f"Error calculando EDT para {nombre_banda}: {str(e)}")
-                banda_resultados["EDT"] = "Error"
+                print(f"Error en Schroeder/Regresión para {nombre_banda}: {str(e)}")
+                banda_resultados["Schroeder"] = "Error"
+                if opciones["hacer_regresion"].get():
+                    banda_resultados["Regresión"] = "Error"
+
         
-        if opciones["c80"].get():
-            try:
-                banda_resultados["C80"] = param_c80(senal_actual, fs)
-            except Exception as e:
-                print(f"Error calculando C80 para {nombre_banda}: {str(e)}")
-                banda_resultados["C80"] = "Error"
-        
-        if opciones["d50"].get():
-            try:
-                banda_resultados["D50"] = param_d50(senal_actual, fs)
-            except Exception as e:
-                print(f"Error calculando D50 para {nombre_banda}: {str(e)}")
-                banda_resultados["D50"] = "Error"
         
         if opciones["t60"].get():
             try:
-                # Asumiendo que tienes una función param_t60 implementada
-                banda_resultados["T60"] = "Implementación pendiente"
+                pendiente = banda_resultados.get("Regresión", {}).get("pendiente", None)
+                if pendiente is not None:
+                    banda_resultados["T60"] = param_t60(pendiente, ordenada)
+                else:
+                    banda_resultados["T60"] = "Falta pendiente"
             except Exception as e:
                 print(f"Error calculando T60 para {nombre_banda}: {str(e)}")
                 banda_resultados["T60"] = "Error"
-            
+
+        if opciones["edt"].get():
+            try:
+                pendiente = banda_resultados.get("Regresión", {}).get("pendiente", None)
+                if pendiente is not None:
+                    banda_resultados["EDT"] = param_edt(pendiente, fs)
+                else:
+                    banda_resultados["EDT"] = "Falta pendiente"
+            except Exception as e:
+                print(f"Error calculando EDT para {nombre_banda}: {str(e)}")
+                banda_resultados["EDT"] = "Error"
+
+        if opciones["c50"].get():
+            try:
+                banda_resultados["C50"] = param_c80(senal_smoothed, t=50, fs=fs)
+            except Exception as e:
+                print(f"Error calculando C50 para {nombre_banda}: {str(e)}")
+                banda_resultados["C50"] = "Error"
+
+        if opciones["c80"].get():
+            try:
+                banda_resultados["C80"] = param_c80(senal_smoothed, t=80, fs=fs)
+            except Exception as e:
+                print(f"Error calculando C80 para {nombre_banda}: {str(e)}")
+                banda_resultados["C80"] = "Error"
+
+        if opciones["d50"].get():
+            try:
+                banda_resultados["D50"] = param_d50(senal_smoothed, fs=fs)
+            except Exception as e:
+                print(f"Error calculando D50 para {nombre_banda}: {str(e)}")
+                banda_resultados["D50"] = "Error"
+
         resultados.append((nombre_banda, banda_resultados))
-    
-    # Procesar bandas seleccionadas
+
+    # Procesar señal general
     if opciones["general"].get():
-        procesar_banda(señal, "Señal General")
-    
+        procesar_banda(smooth, "General", cruce)
+
+    # Procesar bandas de octava
     if opciones["octava"].get():
-        # Filtrar frecuencias que no excedan Nyquist para octavas
-        frecuencias_octava_filtradas = []
-        for fc in banda8vas:
-            # Calcular frecuencia superior para banda de octava: fc * √2
-            if fc * np.sqrt(2) <= nyquist:
-                frecuencias_octava_filtradas.append(fc)
-            else:
-                print(f"Advertencia: Se omite banda de octava {fc}Hz (supera Nyquist)")
-        
-        # Procesar cada frecuencia válida
+        frecuencias_octava_filtradas = [fc for fc in banda8vas if fc * np.sqrt(2) <= nyquist]
         for fc in frecuencias_octava_filtradas:
             try:
-                señal_filtrada = filtronorma(señal, fs, fc, 'octava')
-                procesar_banda(señal_filtrada, f"Octava {fc}Hz")
-            except ValueError as e:
-                print(f"Error procesando octava {fc}Hz: {str(e)}")
+                señal_filtrada = filtronorma(smooth, fs, fc, 'octava')
+                procesar_banda(señal_filtrada, f"Octava {fc}Hz", cruce)
             except Exception as e:
-                print(f"Error inesperado procesando octava {fc}Hz: {str(e)}")
-    
+                print(f"Error procesando octava {fc}Hz: {str(e)}")
+
+    # Procesar bandas de tercio de octava
     if opciones["tercio"].get():
-        # Filtrar frecuencias que no excedan Nyquist para tercios
-        frecuencias_tercio_filtradas = []
-        factor_tercio = 2 ** (1/6)  # Factor para tercio de octava
-        
-        for fc in frecuencias_tercios:
-            # Calcular frecuencia superior para banda de tercio: fc * 2^(1/6)
-            if fc * factor_tercio <= nyquist:
-                frecuencias_tercio_filtradas.append(fc)
-            else:
-                print(f"Advertencia: Se omite banda de tercio {fc}Hz (supera Nyquist)")
-        
-        # Procesar cada frecuencia válida
+        factor_tercio = 2 ** (1/6)
+        frecuencias_tercio_filtradas = [fc for fc in frecuencias_tercios if fc * factor_tercio <= nyquist]
         for fc in frecuencias_tercio_filtradas:
             try:
-                señal_filtrada = filtronorma(señal, fs, fc, 'tercio')
-                procesar_banda(señal_filtrada, f"Tercio {fc}Hz")
-            except ValueError as e:
-                print(f"Error procesando tercio {fc}Hz: {str(e)}")
+                señal_filtrada = filtronorma(smooth, fs, fc, 'tercio')
+                procesar_banda(señal_filtrada, f"Tercio {fc}Hz", cruce)
             except Exception as e:
-                print(f"Error inesperado procesando tercio {fc}Hz: {str(e)}")
-    
-    # Mostrar resultados en tabla
+                print(f"Error procesando tercio {fc}Hz: {str(e)}")
+
+    # Mostrar resultados
     mostrar_resultados_tabla(resultados)
+
+
 
 # --- Ventana análisis avanzado ---
 def ventana_analisis_avanzado():
     ventana = tk.Toplevel()
     ventana.title("Análisis Avanzado")
-    
+
     # Variables de control
     opciones = {
         "metodo": tk.StringVar(value="movil"),
@@ -254,20 +282,38 @@ def ventana_analisis_avanzado():
         "hacer_schroeder": tk.BooleanVar(value=True),
         "hacer_regresion": tk.BooleanVar(value=True),
         "L": tk.IntVar(value=481),
+        "t60": tk.BooleanVar(value=True),
         "edt": tk.BooleanVar(value=True),
+        "c50": tk.BooleanVar(value=True),
         "c80": tk.BooleanVar(value=True),
         "d50": tk.BooleanVar(value=False),
-        "t60": tk.BooleanVar(value=True),
         "general": tk.BooleanVar(value=True),
         "octava": tk.BooleanVar(value=False),
         "tercio": tk.BooleanVar(value=False)
     }
 
-    # Widgets de suavizado
-    tk.Label(ventana, text="Método de suavizado").pack(anchor="w", padx=10, pady=5)
-    # ... (opciones de suavizado existentes) ...
+    # --- Método de suavizado ---
+    frame_suavizado = tk.LabelFrame(ventana, text="Método de Suavizado", padx=10, pady=5)
+    frame_suavizado.pack(fill="x", padx=10, pady=10)
 
-    # Checkboxes para análisis
+    def actualizar_visibilidad_L():
+        if opciones["metodo"].get() == "movil":
+            entrada_L_label.pack(anchor="w", padx=20)
+            entrada_L.pack(anchor="w", padx=20, pady=(0, 5))
+        else:
+            entrada_L_label.pack_forget()
+            entrada_L.pack_forget()
+
+    tk.Radiobutton(frame_suavizado, text="Promedio Móvil", variable=opciones["metodo"],
+                   value="movil", command=actualizar_visibilidad_L).pack(anchor="w")
+    tk.Radiobutton(frame_suavizado, text="Transformada de Hilbert", variable=opciones["metodo"],
+                   value="hilbert", command=actualizar_visibilidad_L).pack(anchor="w")
+
+    entrada_L_label = tk.Label(frame_suavizado, text="Ancho de Ventana (L):")
+    entrada_L = tk.Entry(frame_suavizado, textvariable=opciones["L"], width=10)
+    actualizar_visibilidad_L()
+
+    # --- Otras opciones ---
     tk.Checkbutton(ventana, text="Usar método de Lundeby", 
                    variable=opciones["usar_lundeby"]).pack(anchor="w", padx=10, pady=5)
     tk.Checkbutton(ventana, text="Incluir análisis Schroeder", 
@@ -275,26 +321,23 @@ def ventana_analisis_avanzado():
     tk.Checkbutton(ventana, text="Incluir regresión lineal", 
                    variable=opciones["hacer_regresion"]).pack(anchor="w", padx=10, pady=5)
 
-    # Parámetros acústicos
+    # --- Parámetros acústicos ---
     tk.Label(ventana, text="Parámetros a calcular:").pack(anchor="w", padx=10, pady=(10,0))
+    tk.Checkbutton(ventana, text="T60", variable=opciones["t60"]).pack(anchor="w", padx=20)
     tk.Checkbutton(ventana, text="EDT", variable=opciones["edt"]).pack(anchor="w", padx=20)
+    tk.Checkbutton(ventana, text="C50", variable=opciones["c50"]).pack(anchor="w", padx=20)
     tk.Checkbutton(ventana, text="C80", variable=opciones["c80"]).pack(anchor="w", padx=20)
     tk.Checkbutton(ventana, text="D50", variable=opciones["d50"]).pack(anchor="w", padx=20)
-    tk.Checkbutton(ventana, text="T60", variable=opciones["t60"]).pack(anchor="w", padx=20)
 
-    # Bandas de frecuencia
+    # --- Bandas de frecuencia ---
     tk.Label(ventana, text="Bandas de frecuencia:").pack(anchor="w", padx=10, pady=(10,0))
-    tk.Checkbutton(ventana, text="Señal General", 
-                   variable=opciones["general"]).pack(anchor="w", padx=20)
-    tk.Checkbutton(ventana, text="Bandas de Octava", 
-                   variable=opciones["octava"]).pack(anchor="w", padx=20)
-    tk.Checkbutton(ventana, text="Bandas de Tercio", 
-                   variable=opciones["tercio"]).pack(anchor="w", padx=20)
+    tk.Checkbutton(ventana, text="Señal General", variable=opciones["general"]).pack(anchor="w", padx=20)
+    tk.Checkbutton(ventana, text="Bandas de Octava", variable=opciones["octava"]).pack(anchor="w", padx=20)
+    tk.Checkbutton(ventana, text="Bandas de Tercio", variable=opciones["tercio"]).pack(anchor="w", padx=20)
 
-    # Botón único de cálculo
+    # --- Botón de ejecución ---
     tk.Button(ventana, text="Calcular Parámetros", 
               command=lambda: calcular_parametros_avanzados(opciones)).pack(pady=20)
-
 def hacer_schroeder(opciones):
     metodo = opciones["metodo"].get()
     if metodo == "hilbert":
@@ -308,37 +351,35 @@ def hacer_schroeder(opciones):
     if opciones["ver_schroeder"].get():
         mostrar_schroeder(señal)
 
-def hacer_regresion(opciones):
-    if opciones["ver_regresion"].get():
-        graficar_regresion(respuesta_generada)
 
-# --- Ventana parámetros acústicos con selección octava, tercio y general ---
-def ventana_parametros():
-    ventana = tk.Toplevel()
-    ventana.title("Parámetros acústicos")
-    seleccion = {
-        "edt": tk.BooleanVar(value=True),
-        "c80": tk.BooleanVar(value=True),
-        "d50": tk.BooleanVar(value=False),
-        "t60": tk.BooleanVar(value=True),
-        "general": tk.BooleanVar(value=True),
-        "octava": tk.BooleanVar(value=False),
-        "tercio": tk.BooleanVar(value=False),
-    }
 
-    # Parámetros acústicos
-    tk.Checkbutton(ventana, text="EDT", variable=seleccion["edt"]).pack(anchor="w", padx=10)
-    tk.Checkbutton(ventana, text="C80", variable=seleccion["c80"]).pack(anchor="w", padx=10)
-    tk.Checkbutton(ventana, text="D50", variable=seleccion["d50"]).pack(anchor="w", padx=10)
-    tk.Checkbutton(ventana, text="T60 (T10, T20, T30)", variable=seleccion["t60"]).pack(anchor="w", padx=10)
+# # --- Ventana parámetros acústicos con selección octava, tercio y general ---
+# def ventana_parametros():
+#     ventana = tk.Toplevel()
+#     ventana.title("Parámetros acústicos")
+#     seleccion = {
+#         "edt": tk.BooleanVar(value=True),
+#         "c80": tk.BooleanVar(value=True),
+#         "d50": tk.BooleanVar(value=False),
+#         "t60": tk.BooleanVar(value=True),
+#         "general": tk.BooleanVar(value=True),
+#         "octava": tk.BooleanVar(value=False),
+#         "tercio": tk.BooleanVar(value=False),
+#     }
 
-    # Opciones de análisis general, octava y tercio
-    tk.Label(ventana, text="Opciones de análisis:").pack(anchor="w", padx=10, pady=(10,0))
-    tk.Checkbutton(ventana, text="Señal General (sin filtrar)", variable=seleccion["general"]).pack(anchor="w", padx=20)
-    tk.Checkbutton(ventana, text="Bandas de Octava", variable=seleccion["octava"]).pack(anchor="w", padx=20)
-    tk.Checkbutton(ventana, text="Bandas de Tercio de Octava", variable=seleccion["tercio"]).pack(anchor="w", padx=20)
+#     # Parámetros acústicos
+#     tk.Checkbutton(ventana, text="EDT", variable=seleccion["edt"]).pack(anchor="w", padx=10)
+#     tk.Checkbutton(ventana, text="C80", variable=seleccion["c80"]).pack(anchor="w", padx=10)
+#     tk.Checkbutton(ventana, text="D50", variable=seleccion["d50"]).pack(anchor="w", padx=10)
+#     tk.Checkbutton(ventana, text="T60 (T10, T20, T30)", variable=seleccion["t60"]).pack(anchor="w", padx=10)
 
-    tk.Button(ventana, text="Calcular parámetros", command=lambda: calcular_parametros(respuesta_generada, seleccion)).pack(pady=10)
+#     # Opciones de análisis general, octava y tercio
+#     tk.Label(ventana, text="Opciones de análisis:").pack(anchor="w", padx=10, pady=(10,0))
+#     tk.Checkbutton(ventana, text="Señal General (sin filtrar)", variable=seleccion["general"]).pack(anchor="w", padx=20)
+#     tk.Checkbutton(ventana, text="Bandas de Octava", variable=seleccion["octava"]).pack(anchor="w", padx=20)
+#     tk.Checkbutton(ventana, text="Bandas de Tercio de Octava", variable=seleccion["tercio"]).pack(anchor="w", padx=20)
+
+#     tk.Button(ventana, text="Calcular parámetros", command=lambda: calcular_parametros(respuesta_generada, seleccion)).pack(pady=10)
 
 
 
@@ -429,26 +470,7 @@ def mostrar_schroeder(signal):
     plt.grid()
     plt.show()
 
-def graficar_regresion(signal):
-    energia = np.cumsum(signal[::-1] ** 2)[::-1]
-    energia_db = 10 * np.log10(energia / np.max(energia))
-    tiempo = np.linspace(0, len(signal) / fs, len(signal))
-    idx_ini = int(0.1 * len(signal))
-    idx_fin = int(0.3 * len(signal))
-    x = tiempo[idx_ini:idx_fin]
-    y = energia_db[idx_ini:idx_fin]
-    A = np.vstack([x, np.ones_like(x)]).T
-    m, b = np.linalg.lstsq(A, y, rcond=None)[0]
-    y_fit = m * x + b
-    plt.figure()
-    plt.plot(tiempo, energia_db, label="Curva de Schroeder")
-    plt.plot(x, y_fit, label=f"Regresión (pendiente = {m:.2f})")
-    plt.xlabel("Tiempo (s)")
-    plt.ylabel("Nivel (dB)")
-    plt.title("Regresión por Mínimos Cuadrados")
-    plt.grid()
-    plt.legend()
-    plt.show()
+
     
 def cargar_ri_desde_wav():
     global respuesta_generada
