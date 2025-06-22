@@ -544,12 +544,48 @@ def param_edt(m,b):
     return: float
         Devuelve el valor del EDT.
     '''
-    ## Early Decay Time (EDT)
+    dB_ini = 0     # Inicio del decaimiento (nivel máximo)
+    dB_fin = -10   # Nivel a alcanzar
 
-    edt = (-60 - b) / m
+    t0 = (dB_ini - b) / m
+    t10 = (dB_fin - b) / m
+
+    edt = 6 * (t10 - t0)
 
     return edt
 
+def param_t60(m,b,metodo='t30'):
+    """
+    Calcula T60 extrapolado a partir de una recta ya ajustada.
+
+    Parámetros:
+    -----------
+    m: float
+        Pendiente de la recta obtenida por regresión lineal.
+    b: float
+        Ordenada al origen de la recta obtenida por regresión lineal.
+    metodo: string
+        Metodo de transposición para el T60: 't10','t20','t30' (por defecto).
+    return: float
+        Devuelve el valor del T60.
+    """
+    if metodo == 't10':
+        dB_ini, dB_fin = -5, -15
+    elif metodo == 't20':
+        dB_ini, dB_fin = -5, -25
+    elif metodo == 't30':
+        dB_ini, dB_fin = -5, -35
+    else:
+        raise ValueError("Método inválido. Usa 't10', 't20' o 't30'.")
+
+    t_ini = (dB_ini - b) / m
+    t_fin = (dB_fin - b) / m
+    tramo = t_fin - t_ini
+    multiplicador = 60 / abs(dB_fin - dB_ini)
+
+    t60 = tramo * multiplicador
+
+    return t60
 
 def param_c80(signal,t=50,fs=44100):
     '''
@@ -561,7 +597,7 @@ def param_c80(signal,t=50,fs=44100):
     signal: Numpy Array
         Corresponde a la respuesta al impulso del recinto.
     t: int
-        Valor en milisegundos que requiera el usuario.
+        Valor en milisegundos que requiera el usuario (50ms por defecto).
     fs: int
         Frecuencia de muestreo correspondiente a la respuesta al impulso.
     return: float
@@ -570,11 +606,11 @@ def param_c80(signal,t=50,fs=44100):
     # C80 o "claridad"
 
     # Se pasa de milisegundos a segundos
-    t = t / 1000  
+    t = t / 1000
 
     # Se recorta la IR hasta el extremo superior
-    pre80 = signal[:fs*t]
-    post80 = signal[fs*t:]
+    pre80 = signal[:int(fs*t)]
+    post80 = signal[int(fs*t):]
 
     # Calcula la energía del primer tramo
     energia_pre80 = np.sum(pre80**2)
@@ -585,7 +621,7 @@ def param_c80(signal,t=50,fs=44100):
     if energia_post80 == 0:
         return 0
 
-    # Se calcula el C80 
+    # Se calcula el C80
     c80 = 10 * np.log10(energia_pre80 / energia_post80)
 
     return c80
@@ -605,21 +641,21 @@ def param_d50(signal,fs=44100):
     '''
     ## D50 o "definición"
 
-    t = 0.05 
+    t = 0.05
 
     # Se recorta la IR hasta el extremo superior
-    pre50 = signal[:fs*t]
+    pre50 = signal[:int(fs*t)]
 
     # Calcula la energía del primer tramo
     energia_pre50 = np.sum(pre50**2)
 
-    # Calcula la energía total de la señal 
+    # Calcula la energía total de la señal
     energia_signal= np.sum(signal**2)
 
     if energia_signal == 0:
         return 0
 
-    # Se calcula el C80 
+    # Se calcula el C80
     d50 = energia_pre50 / energia_signal
 
-    return d50 
+    return d50
