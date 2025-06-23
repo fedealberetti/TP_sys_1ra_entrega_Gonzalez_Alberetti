@@ -13,16 +13,15 @@ def normalizar_RI(senal):
 
 import numpy as np
 
-def sintetizar_respuesta_impulso(t60_por_banda, fs, duracion, frecuencias_centrales, SNR_dB=60):
+def sintetizar_respuesta_impulso(t60_por_banda, fs, duracion, frecuencias_centrales):
     """
-    Sintetiza una respuesta al impulso multibanda y agrega ruido rosa con fade out.
+    Sintetiza una respuesta al impulso multibanda sin agregar ruido.
 
     Parámetros:
         t60_por_banda (list): Lista de T60 por banda (en segundos).
         fs (int): Frecuencia de muestreo (Hz).
         duracion (float): Duración total de la señal de salida (en segundos).
         frecuencias_centrales (list): Lista de frecuencias centrales (Hz).
-        SNR_dB (float): Relación señal-ruido en dB (por defecto 60 dB).
 
     Retorna:
         tuple: (vector de tiempo, señal final normalizada)
@@ -50,41 +49,15 @@ def sintetizar_respuesta_impulso(t60_por_banda, fs, duracion, frecuencias_centra
     else:
         ir_extendida = ir_desplazada[:len(t)]
 
-    # Calcular potencia de la IR
-    ir_power = np.mean(ir_extendida**2)
-    noise_power = ir_power / (10**(SNR_dB / 10))
-
-    # Generar ruido rosa del mismo largo
-    duracion_ruido = len(ir_extendida) / fs
-    ruido, _ = generar_ruido_rosa(duracion_ruido, fs=fs)
-    ruido = ruido[:len(ir_extendida)].astype(np.float64)  # ← Conversión explícita a float
-
-    # Aplicar rampa de fade out (último 10% de la señal)
-    n = len(ruido)
-    fade_len = int(0.10 * n)
-    ventana = np.ones(n)
-    ventana[-fade_len:] *= 0.5 * (1 + np.cos(np.linspace(0, np.pi, fade_len)))  # Hann invertida
-
-    ruido *= ventana
-
-
-    # Escalar ruido para respetar el SNR
-    ruido_power = np.mean(ruido**2)
-    factor_ruido = np.sqrt(noise_power / ruido_power)
-    ruido_escalado = ruido * factor_ruido
-
-    # Sumar ruido a la IR extendida
-    senal_con_ruido = ir_extendida + ruido_escalado
-
     # Normalizar señal final
-    senal_normalizada = normalizar_RI(senal_con_ruido)
+    senal_normalizada = normalizar_RI(ir_extendida)
 
     return t, senal_normalizada
 
 
 
 
-def funcRI(fi, sine, fs=44100, tmax=20.0):
+def funcRI(fi, sine, fs=44100, tmax=2.0):
 
     datosfi, fs = sf.read(fi)  # Cargar el archivo de respuesta al impulso
     datossine, fs = sf.read(sine)  # Cargar el archivo de señal de entrada (sine sweep)
@@ -410,7 +383,7 @@ def schroeder_integral(ir, dt=1.0):
     
     return energy_decay, energy_decay_db
 
-def lundeby(ir, fs=44100, segment_length_ms=10):
+def lundeby(ir, fs=44100, segment_length_ms=25,  margin_db = 50):
     """
     Estima el punto de cruce entre decaimiento y ruido usando Lundeby.
     También devuelve la curva de Schroeder.
@@ -448,14 +421,14 @@ def lundeby(ir, fs=44100, segment_length_ms=10):
     noise_level = np.mean(seg_means[int(0.9*n_segments):])
 
     # 5. Buscar cruce: primer segmento donde el nivel es menor que el ruido + margen
-    margin_db = 10  # margen para evitar ruidos intermitentes
+     # margen para evitar ruidos intermitentes
     cross_segment = np.where(seg_means < noise_level + margin_db)[0]
     if len(cross_segment) == 0:
         idx_cross = len(ir)  # No cruza, usamos todo
     else:
         idx_cross = cross_segment[0] * seg_len
 
-    return idx_cross, sch_db
+    return idx_cross
 
 def regresion_lineal_iso3382(x, y):
     """
